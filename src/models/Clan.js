@@ -2,7 +2,7 @@ const mongoose = require("mongoose");
 
 const clanSchema = new mongoose.Schema({
   name: { type: String, required: true },
-  status: { type: String, required: true },
+  status: { type: String, required: false },
   members: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Member', required: false }],
 });
 

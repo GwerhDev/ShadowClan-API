@@ -51,8 +51,8 @@ router.post('/', async (req, res) => {
     const decodedToken = await decodeToken(userToken);
     if (decodedToken?.data?.role !== roles.admin) return res.status(403).json({ message: message.admin.permissionDenied });
 
-    const { name, status, members } = req.body;
-    const newClan = new Clan({ name, status, members });
+    const { name } = req.body;
+    const newClan = new Clan({ name });
 
     await newClan.save();
 
