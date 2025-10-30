@@ -13,7 +13,13 @@ router.get('/', async (req, res) => {
     const decodedToken = await decodeToken(userToken);
     if (decodedToken?.data?.role !== roles.admin) return res.status(403).json({ message: message.admin.permissionDenied });
 
-    const clans = await Clan.find();
+    const { q, page = 1, limit = 10 } = req.query;
+    const query = q ? { name: { $regex: q, $options: 'i' } } : {};
+
+    const clans = await Clan.find(query)
+      .limit(parseInt(limit))
+      .skip((parseInt(page) - 1) * parseInt(limit));
+
     return res.status(200).json(clans);
   } catch (error) {
     return res.status(500).json({ error: message.user.error });
