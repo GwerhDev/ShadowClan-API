@@ -2,7 +2,7 @@ const router = require("express").Router();
 const passport = require("passport");
 const { loginBnet } = require("../integrations/bnet");
 const userSchema = require("../models/User");
-const { clientUrl } = require("../config");
+const { clientUrl, appClientUrl } = require("../config");
 const { createToken } = require("../integrations/jwt");
 const { status } = require("../misc/consts-user-model");
 
@@ -35,13 +35,13 @@ router.get('/success', async (req, res) => {
 
     if (userExist && userExist.status === status.pending) return res.status(400).redirect(`${clientUrl}/login/user-pending-approve`);
     if (userExist && userExist.status === status.inactive) return res.status(400).redirect(`${clientUrl}/login/user-inactive`);
-    
+
     if (userExist && userExist.status === status.active) {
       const { _id, role } = userExist;
       const data_login = { id: _id, role };
       const token = await createToken(data_login, 3);
 
-      return res.status(200).redirect(`${clientUrl}/auth/${token}`);
+      return res.status(200).redirect(`${appClientUrl}/auth/${token}`);
     } else {
       return res.status(400).redirect(`${clientUrl}/auth/not_found`);
     }
