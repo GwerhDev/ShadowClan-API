@@ -94,6 +94,7 @@ module.exports = {
       error: "Error",
       existing: "User already exists",
       notfound: "User not found",
+      unauthorized: "Unauthorized",
     },
     product: {
       error: "Error",

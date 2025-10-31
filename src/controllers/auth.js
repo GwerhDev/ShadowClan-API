@@ -6,6 +6,11 @@ const { message } = require('../messages');
 router.get("/", async (req, res) => {
   try {
     const userToken = req.cookies['u_tkn'] || req.headers.authorization?.split(' ')[1];
+
+    if (!userToken) {
+      return res.status(401).send({ logged: false, message: message.user.unauthorized });
+    }
+
     const decodedToken = await decodeToken(userToken);
     const user = await userSchema.findById(decodedToken.data.id)?.populate("character");
 
@@ -26,10 +31,10 @@ router.get("/", async (req, res) => {
       character: user.character,
     };
 
-    return res.status(200).json({ logged: true, userData });
+    return res.status(200).json(userData);
 
   } catch (error) {
-    return res.status(500).send({ error: message.user.error })
+    return res.status(401).send({ logged: false, message: message.user.unauthorized });
   }
 });
 
