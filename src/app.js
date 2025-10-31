@@ -19,7 +19,7 @@ server.use((req, res, next) => {
   console.log('request from:', req.headers.origin);
   console.log('method:', req.method);
   console.log('route:', req.url);
-  console.log('allowed origins:', allowedOriginsArray);
+  console.log('allowed origins:', allowedOrigins);
 
   const origin = req.headers.origin;
 
