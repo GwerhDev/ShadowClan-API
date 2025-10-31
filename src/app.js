@@ -3,7 +3,7 @@ const server = express();
 const routes = require("./routes");
 
 const morgan = require("morgan");
-const session = require("express-session");
+
 
 const passport = require("passport");
 const bodyParser = require("body-parser");
@@ -21,9 +21,8 @@ server.use((req, res, next) => {
   console.log('route:', req.url);
 
   const origin = req.headers.origin;
-  const allowedOriginsArray = allowedOrigins ? allowedOrigins.split(',') : [];
 
-  if (allowedOriginsArray.includes(origin)) {
+  if (allowedOrigins.includes(origin)) {
     res.header('Access-Control-Allow-Origin', origin);
   }
 
@@ -40,15 +39,7 @@ server.use((req, res, next) => {
 
 server.use(cookieParser());
 
-server.use(session({
-  secret: privateSecret,
-  resave: false,
-  saveUninitialized: false,
-}));
-
 server.use(passport.initialize());
-server.use(bodyParser.json());
-server.use(passport.session());
 server.use('/', routes);
 
 module.exports = server;

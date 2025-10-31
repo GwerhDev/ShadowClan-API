@@ -26,7 +26,7 @@ router.get("/", async (req, res) => {
       character: user.character,
     };
 
-    return res.status(200).send({ logged: true, userData });
+    return res.status(200).json({ logged: true, userData });
 
   } catch (error) {
     return res.status(500).send({ error: message.user.error })
