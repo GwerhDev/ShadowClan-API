@@ -6,8 +6,7 @@ const characterSchema = new mongoose.Schema({
   resonance: { type: Number, required: false },
   currentClass: { type: String, required: false },
 
-  clan: { type: String, required: false },
-  /*   clan: { type: mongoose.Schema.Types.ObjectId, ref: 'Clan', required: false }, */
+  clan: { type: mongoose.Schema.Types.ObjectId, ref: 'Clan', required: false },
 });
 
 module.exports = mongoose.model('Character', characterSchema);

@@ -6,6 +6,7 @@ const { message } = require('../messages');
 router.get("/", async (req, res) => {
   try {
     const userToken = req.cookies['u_tkn'] || req.headers.authorization?.split(' ')[1];
+    console.log(userToken);
 
     if (!userToken) {
       return res.status(401).send({ logged: false, message: message.user.unauthorized });
@@ -13,9 +14,9 @@ router.get("/", async (req, res) => {
 
     const decodedToken = await decodeToken(userToken);
     const user = await userSchema.findById(decodedToken.data.id)?.populate("character");
-
+    
     if (!user) return res.status(404).send({ logged: false, message: message.user.notfound });
-
+    
     const username = user.battletag.split("#")[0];
     const discriminator = user.battletag.split("#")[1];
 
@@ -34,7 +35,7 @@ router.get("/", async (req, res) => {
     return res.status(200).json({ logged: true, userData });
 
   } catch (error) {
-    return res.status(401).send({ logged: false, message: message.user.unauthorized });
+    return res.status(500).send({ logged: false, message: message.user.unauthorized });
   }
 });
 
