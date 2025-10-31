@@ -31,7 +31,7 @@ router.get("/", async (req, res) => {
       character: user.character,
     };
 
-    return res.status(200).json(userData);
+    return res.status(200).json({ logged: true, userData });
 
   } catch (error) {
     return res.status(401).send({ logged: false, message: message.user.unauthorized });
