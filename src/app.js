@@ -19,15 +19,11 @@ server.use((req, res, next) => {
   console.log('request from:', req.headers.origin);
   console.log('method:', req.method);
   console.log('route:', req.url);
+  console.log('allowed origins:', allowedOriginsArray);
 
   const origin = req.headers.origin;
-  const allowedOriginsArray = allowedOrigins ? allowedOrigins.split(',') : [];
 
-  if (process.env.NODE_ENV !== production) {
-    allowedOriginsArray.push('http://localhost:5173');
-  }
-
-  if (allowedOriginsArray.includes(origin)) {
+  if (allowedOrigins.includes(origin)) {
     res.header('Access-Control-Allow-Origin', origin);
   }
 
