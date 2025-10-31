@@ -41,7 +41,7 @@ router.get('/success', async (req, res) => {
       const data_login = { id: _id, role };
       const token = await createToken(data_login, 3);
 
-      if (environment == production) {
+      if (environment === production) {
         res.cookie("u_tkn", token, {
           httpOnly: true,
           secure: true,

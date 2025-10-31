@@ -11,16 +11,15 @@ const cookieParser = require("cookie-parser");
 const { privateSecret, allowedOrigins } = require("./config");
 const { production } = require("./misc/consts");
 
+if (process.env.NODE_ENV === production) {
+  server.set('trust proxy', 1);
+}
+
 server.use(bodyParser.json({ limit: '100mb' }));
 server.use(bodyParser.urlencoded({ limit: '100mb', extended: true }));
-server.use(morgan('dev'));
+server.use(morgan('combined'));
 
 server.use((req, res, next) => {
-  console.log('request from:', req.headers.origin);
-  console.log('method:', req.method);
-  console.log('route:', req.url);
-  console.log('allowed origins:', allowedOrigins);
-
   const origin = req.headers.origin;
 
   if (allowedOrigins.includes(origin)) {
