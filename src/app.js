@@ -7,10 +7,11 @@ const session = require("express-session");
 
 const passport = require("passport");
 const bodyParser = require("body-parser");
+const cookieParser = require("cookie-parser");
 const { privateSecret } = require("./config");
 
-server.use(bodyParser.json({limit: '100mb'}));
-server.use(bodyParser.urlencoded({limit: '100mb', extended: true}));
+server.use(bodyParser.json({ limit: '100mb' }));
+server.use(bodyParser.urlencoded({ limit: '100mb', extended: true }));
 server.use(morgan('dev'));
 
 server.use((req, res, next) => {
@@ -29,10 +30,17 @@ server.use((req, res, next) => {
   }
 });
 
+server.use(cookieParser());
+
 server.use(session({
   secret: privateSecret,
   resave: false,
-  saveUninitialized: false
+  saveUninitialized: false,
+  cookie: {
+    sameSite: process.env.NODE_ENV === "production" ? 'None' : 'Lax',
+    secure: process.env.NODE_ENV === "production" ? true : false,
+    domain: '.shadowclan.cl'
+  }
 }));
 
 server.use(passport.initialize());

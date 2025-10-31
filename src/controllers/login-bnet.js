@@ -41,7 +41,26 @@ router.get('/success', async (req, res) => {
       const data_login = { id: _id, role };
       const token = await createToken(data_login, 3);
 
-      return res.status(200).redirect(`${appClientUrl}/auth/${token}`);
+      if (process.env.NODE_ENV === "production") {
+        res.cookie("u_tkn", token, {
+          httpOnly: true,
+          secure: true,
+          sameSite: "None",
+          domain: ".shadowclan.cl",
+          path: "/",
+          maxAge: 24 * 60 * 60 * 1000
+        });
+      } else {
+        res.cookie("u_tkn", sessionToken, {
+          httpOnly: true,
+          secure: false,
+          sameSite: "Lax",
+          path: "/",
+          maxAge: 24 * 60 * 60 * 1000
+        });
+      }
+
+      return res.status(200).redirect(appClientUrl);
     } else {
       return res.status(400).redirect(`${clientUrl}/auth/not_found`);
     }

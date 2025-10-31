@@ -38,7 +38,6 @@ router.get('/success', async (req, res) => {
       provider: user.provider,
       status: status.pending,
       role: roles.member,
-      warband: null,
     });
 
     await newUser.save();
