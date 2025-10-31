@@ -3,7 +3,7 @@ const server = express();
 const routes = require("./routes");
 
 const morgan = require("morgan");
-
+const session = require("express-session");
 
 const passport = require("passport");
 const bodyParser = require("body-parser");
@@ -21,8 +21,13 @@ server.use((req, res, next) => {
   console.log('route:', req.url);
 
   const origin = req.headers.origin;
+  const allowedOriginsArray = allowedOrigins ? allowedOrigins.split(',') : [];
 
-  if (allowedOrigins.includes(origin)) {
+  if (process.env.NODE_ENV !== production) {
+    allowedOriginsArray.push('http://localhost:5173');
+  }
+
+  if (allowedOriginsArray.includes(origin)) {
     res.header('Access-Control-Allow-Origin', origin);
   }
 
@@ -39,7 +44,20 @@ server.use((req, res, next) => {
 
 server.use(cookieParser());
 
+server.use(session({
+  secret: privateSecret,
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    sameSite: process.env.NODE_ENV === production ? 'None' : 'Lax',
+    secure: process.env.NODE_ENV === production ? true : false,
+    domain: process.env.NODE_ENV === production ? '.shadowclan.cl' : undefined
+  }
+}));
+
 server.use(passport.initialize());
+server.use(bodyParser.json());
+server.use(passport.session());
 server.use('/', routes);
 
 module.exports = server;
