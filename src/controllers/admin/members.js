@@ -6,7 +6,7 @@ const { decodeToken } = require('../../integrations/jwt');
 
 const authorizeRoles = (allowedRoles) => async (req, res, next) => {
   try {
-    const userToken = req.headers.authorization;
+    const userToken = req.cookies['u_tkn'] || req.headers.authorization?.split(' ')[1];
     if (!userToken) {
       return res.status(401).send({ message: message.admin.permissionDenied });
     }

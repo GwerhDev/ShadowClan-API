@@ -1,10 +1,11 @@
 const router = require("express").Router();
 const passport = require("passport");
-const { loginBnet } = require("../integrations/bnet");
 const userSchema = require("../models/User");
-const { clientUrl, appClientUrl } = require("../config");
+const { loginBnet } = require("../integrations/bnet");
+const { clientUrl, appClientUrl, environment } = require("../config");
 const { createToken } = require("../integrations/jwt");
 const { status } = require("../misc/consts-user-model");
+const { production } = require("../misc/consts");
 
 passport.use('login-bnet', loginBnet);
 
@@ -30,7 +31,6 @@ router.get('/failure', (req, res) => {
 router.get('/success', async (req, res) => {
   try {
     const user = req.session.passport.user;
-
     const userExist = await userSchema.findOne({ battlenetId: user.battlenetId });
 
     if (userExist && userExist.status === status.pending) return res.status(400).redirect(`${clientUrl}/login/user-pending-approve`);
@@ -41,7 +41,7 @@ router.get('/success', async (req, res) => {
       const data_login = { id: _id, role };
       const token = await createToken(data_login, 3);
 
-      if (process.env.NODE_ENV === "production") {
+      if (environment == production) {
         res.cookie("u_tkn", token, {
           httpOnly: true,
           secure: true,

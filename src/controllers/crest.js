@@ -6,7 +6,7 @@ const { decodeToken } = require('../integrations/jwt');
 
 router.post('/', async (req, res) => {
   try {
-    const userToken = req.headers.authorization;
+    const userToken = req.cookies['u_tkn'] || req.headers.authorization?.split(' ')[1];
     const decodedToken = await decodeToken(userToken);
     const user = await userSchema.findOne({ _id: decodedToken.data.id });
 
@@ -29,7 +29,7 @@ router.post('/', async (req, res) => {
 
 router.post('/counter', async (req, res) => {
   try {
-    const userToken = req.headers.authorization;
+    const userToken = req.cookies['u_tkn'] || req.headers.authorization?.split(' ')[1];
     const decodedToken = await decodeToken(userToken);
     const user = await userSchema.findOne({ _id: decodedToken.data.id });
 
@@ -52,7 +52,7 @@ router.post('/counter', async (req, res) => {
 
 router.post('/create', async (req, res) => {
   try {
-    const userToken = req.headers.authorization;
+    const userToken = req.cookies['u_tkn'] || req.headers.authorization?.split(' ')[1];
     const decodedToken = await decodeToken(userToken);
     const user = await userSchema.findOne({ _id: decodedToken.data.id });
 
@@ -77,7 +77,7 @@ router.post('/create', async (req, res) => {
 
 router.patch('/:id', async (req, res) => {
   try {
-    const userToken = req.headers.authorization;
+    const userToken = req.cookies['u_tkn'] || req.headers.authorization?.split(' ')[1];
     const decodedToken = await decodeToken(userToken);
 
     const user = await userSchema.findOne({ _id: decodedToken.data.id });
@@ -110,7 +110,7 @@ router.patch('/:id', async (req, res) => {
 
 router.delete('/:id', async (req, res) => {
   try {
-    const userToken = req.headers.authorization;
+    const userToken = req.cookies['u_tkn'] || req.headers.authorization?.split(' ')[1];
     const decodedToken = await decodeToken(userToken);
     const user = await userSchema.findOne({ _id: decodedToken.data.id });
 

@@ -7,7 +7,7 @@ const { roles } = require('../../misc/consts-user-model');
 // GET all clans
 router.get('/', async (req, res) => {
   try {
-    const userToken = req.headers.authorization;
+    const userToken = req.cookies['u_tkn'] || req.headers.authorization?.split(' ')[1];
     if (!userToken) return res.status(403).json({ message: message.admin.permissionDenied });
 
     const decodedToken = await decodeToken(userToken);
@@ -29,7 +29,7 @@ router.get('/', async (req, res) => {
 // GET a single clan by ID
 router.get('/:id', async (req, res) => {
   try {
-    const userToken = req.headers.authorization;
+    const userToken = req.cookies['u_tkn'] || req.headers.authorization?.split(' ')[1];
     if (!userToken) return res.status(403).json({ message: message.admin.permissionDenied });
 
     const decodedToken = await decodeToken(userToken);
@@ -51,7 +51,7 @@ router.get('/:id', async (req, res) => {
 // POST a new clan
 router.post('/', async (req, res) => {
   try {
-    const userToken = req.headers.authorization;
+    const userToken = req.cookies['u_tkn'] || req.headers.authorization?.split(' ')[1];
     if (!userToken) return res.status(403).json({ message: message.admin.permissionDenied });
 
     const decodedToken = await decodeToken(userToken);
@@ -73,7 +73,7 @@ router.post('/', async (req, res) => {
 // PATCH a clan by ID
 router.patch('/:id', async (req, res) => {
   try {
-    const userToken = req.headers.authorization;
+    const userToken = req.cookies['u_tkn'] || req.headers.authorization?.split(' ')[1];
     if (!userToken) return res.status(403).json({ message: message.admin.permissionDenied });
 
     const decodedToken = await decodeToken(userToken);
@@ -97,7 +97,7 @@ router.patch('/:id', async (req, res) => {
 // DELETE a clan by ID
 router.delete('/:id', async (req, res) => {
   try {
-    const userToken = req.headers.authorization;
+    const userToken = req.cookies['u_tkn'] || req.headers.authorization?.split(' ')[1];
     if (!userToken) return res.status(403).json({ message: message.admin.permissionDenied });
 
     const decodedToken = await decodeToken(userToken);

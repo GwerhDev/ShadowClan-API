@@ -6,7 +6,7 @@ const { decodeToken } = require('../integrations/jwt');
 
 router.get('/', async (req, res) => {
   try {
-    const userToken = req.headers.authorization;
+    const userToken = req.cookies['u_tkn'] || req.headers.authorization?.split(' ')[1];
     const decodedToken = await decodeToken(userToken);
 
     const user = await userSchema.findOne({ _id: decodedToken.data.id })?.populate("character");
@@ -23,7 +23,7 @@ router.get('/', async (req, res) => {
 
 router.post('/create', async (req, res) => {
   try {
-    const userToken = req.headers.authorization;
+    const userToken = req.cookies['u_tkn'] || req.headers.authorization?.split(' ')[1];
     const decodedToken = await decodeToken(userToken);
 
     const user = await userSchema.findOne({ _id: decodedToken.data.id });

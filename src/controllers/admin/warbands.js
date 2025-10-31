@@ -6,7 +6,7 @@ const { roles } = require('../../misc/consts-user-model');
 
 router.post('/create', async (req, res) => {
   try {
-    const userToken = req.headers.authorization;
+    const userToken = req.cookies['u_tkn'] || req.headers.authorization?.split(' ')[1];
     if (!userToken) return res.status(403).json({ message: message.admin.permissionDenied });
 
     const decodedToken = await decodeToken(userToken);
@@ -24,7 +24,7 @@ router.post('/create', async (req, res) => {
 
 router.patch('/:id', async (req, res) => {
   try {
-    const userToken = req.headers.authorization;
+    const userToken = req.cookies['u_tkn'] || req.headers.authorization?.split(' ')[1];
     if (!userToken) return res.status(403).json({ message: message.admin.permissionDenied });
 
     const decodedToken = await decodeToken(userToken);
@@ -47,7 +47,7 @@ router.patch('/:id', async (req, res) => {
 
 router.delete('/:id', async (req, res) => {
   try {
-    const userToken = req.headers.authorization;
+    const userToken = req.cookies['u_tkn'] || req.headers.authorization?.split(' ')[1];
     if (!userToken) return res.status(403).json({ message: message.admin.permissionDenied });
 
     const decodedToken = await decodeToken(userToken);

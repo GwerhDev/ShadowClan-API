@@ -7,7 +7,7 @@ const { roles } = require('../../misc/consts-user-model');
 // GET all shadow wars
 router.get('/', async (req, res) => {
   try {
-    const userToken = req.headers.authorization;
+    const userToken = req.cookies['u_tkn'] || req.headers.authorization?.split(' ')[1];
     if (!userToken) return res.status(403).json({ message: message.admin.permissionDenied });
 
     const decodedToken = await decodeToken(userToken);
@@ -39,7 +39,7 @@ router.get('/', async (req, res) => {
 // GET a single shadow war by ID
 router.get('/by-date', async (req, res) => {
   try {
-    const userToken = req.headers.authorization;
+    const userToken = req.cookies['u_tkn'] || req.headers.authorization?.split(' ')[1];
     if (!userToken) return res.status(403).json({ message: message.admin.permissionDenied });
 
     const decodedToken = await decodeToken(userToken);
@@ -76,7 +76,7 @@ router.get('/by-date', async (req, res) => {
 // GET a single shadow war by ID
 router.get('/:id', async (req, res) => {
   try {
-    const userToken = req.headers.authorization;
+    const userToken = req.cookies['u_tkn'] || req.headers.authorization?.split(' ')[1];
     if (!userToken) return res.status(403).json({ message: message.admin.permissionDenied });
 
     const decodedToken = await decodeToken(userToken);
@@ -108,7 +108,7 @@ router.get('/:id', async (req, res) => {
 // POST a new shadow war
 router.post('/', async (req, res) => {
   try {
-    const userToken = req.headers.authorization;
+    const userToken = req.cookies['u_tkn'] || req.headers.authorization?.split(' ')[1];
     if (!userToken) return res.status(403).json({ message: message.admin.permissionDenied });
 
     const decodedToken = await decodeToken(userToken);
@@ -126,7 +126,7 @@ router.post('/', async (req, res) => {
 // PATCH a shadow war by ID
 router.patch('/:id', async (req, res) => {
   try {
-    const userToken = req.headers.authorization;
+    const userToken = req.cookies['u_tkn'] || req.headers.authorization?.split(' ')[1];
     if (!userToken) return res.status(403).json({ message: message.admin.permissionDenied });
 
     const decodedToken = await decodeToken(userToken);
@@ -167,7 +167,7 @@ router.patch('/:id', async (req, res) => {
 // DELETE a shadow war by ID
 router.delete('/:id', async (req, res) => {
   try {
-    const userToken = req.headers.authorization;
+    const userToken = req.cookies['u_tkn'] || req.headers.authorization?.split(' ')[1];
     if (!userToken) return res.status(403).json({ message: message.admin.permissionDenied });
 
     const decodedToken = await decodeToken(userToken);
