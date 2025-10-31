@@ -5,7 +5,8 @@ const { message } = require('../messages');
 
 router.get("/", async(req, res) => {
   try {
-    const userToken = req.headers.authorization;
+    console.log(req.cookies);
+    const userToken = req.cookies['u_tkn'] || req.headers.authorization?.split(' ')[1];
     const decodedToken = await decodeToken(userToken);
     const user = await userSchema.findOne({ _id: decodedToken.data.id })?.populate("character");
     

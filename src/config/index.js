@@ -17,6 +17,7 @@ module.exports = {
   cohereSecret: process.env.COHERE_SECRET,
 
   privateSecret: process.env.PRIVATE_SECRET,
+  allowedOrigins: process.env.NODE_ENV === production ? process.env.ALLOWED_ORIGINS_PROD : process.env.ALLOWED_ORIGINS,
 
   timezoneOffset: process.env.TIMEZONE_OFFSET || -3,
 }

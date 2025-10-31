@@ -51,7 +51,7 @@ router.get('/success', async (req, res) => {
           maxAge: 24 * 60 * 60 * 1000
         });
       } else {
-        res.cookie("u_tkn", sessionToken, {
+        res.cookie("u_tkn", token, {
           httpOnly: true,
           secure: false,
           sameSite: "Lax",
