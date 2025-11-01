@@ -1,12 +1,11 @@
 require("dotenv").config();
-const { production } = require("../misc/consts");
 
 module.exports = {
   port: process.env.PORT,
   environment: process.env.NODE_ENV,
-  apiUrl: process.env.NODE_ENV === production ? process.env.API_URL_PROD : process.env.API_URL,
-  clientUrl: process.env.NODE_ENV === production ? process.env.CLIENT_URL_PROD : process.env.CLIENT_URL,
-  appClientUrl: process.env.NODE_ENV === production ? process.env.APP_CLIENT_URL_PROD : process.env.APP_CLIENT_URL,
+  apiUrl: process.env.NODE_ENV === "production" ? process.env.API_URL_PROD : process.env.API_URL,
+  clientUrl: process.env.NODE_ENV === "production" ? process.env.CLIENT_URL_PROD : process.env.CLIENT_URL,
+  appClientUrl: process.env.NODE_ENV === "production" ? process.env.APP_CLIENT_URL_PROD : process.env.APP_CLIENT_URL,
 
   adminEmailList: process.env.ADMIN_EMAIL_LIST,
 
@@ -18,7 +17,7 @@ module.exports = {
   cohereSecret: process.env.COHERE_SECRET,
 
   privateSecret: process.env.PRIVATE_SECRET,
-  allowedOrigins: process.env.NODE_ENV === production ? process.env.ALLOWED_ORIGINS_PROD : process.env.ALLOWED_ORIGINS,
+  allowedOrigins: process.env.NODE_ENV === "production" ? process.env.ALLOWED_ORIGINS_PROD : process.env.ALLOWED_ORIGINS,
 
   timezoneOffset: process.env.TIMEZONE_OFFSET || -3,
 }

@@ -6,7 +6,6 @@ const { message } = require('../messages');
 router.get("/", async (req, res) => {
   try {
     const userToken = req.cookies['u_tkn'] || req.headers.authorization?.split(' ')[1];
-    console.log(userToken);
 
     if (!userToken) {
       return res.status(401).send({ logged: false, message: message.user.unauthorized });

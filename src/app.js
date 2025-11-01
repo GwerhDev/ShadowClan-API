@@ -10,7 +10,6 @@ const bodyParser = require("body-parser");
 const cookieParser = require("cookie-parser");
 
 const { privateSecret, allowedOrigins, environment } = require("./config");
-const { production } = require("./misc/consts");
 
 server.use((req, res, next) => {
   const origin = req.headers.origin;
@@ -40,8 +39,8 @@ server.use(session({
   resave: false,
   saveUninitialized: false,
   cookie: {
-    sameSite: process.env.NODE_ENV === production ? 'None' : 'Lax',
-    secure: process.env.NODE_ENV === production ? true : false,
+    sameSite: process.env.NODE_ENV === "production" ? 'None' : 'Lax',
+    secure: process.env.NODE_ENV === "production" ? true : false,
     domain: '.shadowclan.cl'
   }
 }));

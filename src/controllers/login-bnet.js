@@ -5,7 +5,6 @@ const { loginBnet } = require("../integrations/bnet");
 const { clientUrl, appClientUrl } = require("../config");
 const { createToken } = require("../integrations/jwt");
 const { status } = require("../misc/consts-user-model");
-const { production } = require("../misc/consts");
 require("dotenv").config();
 
 passport.use('login-bnet', loginBnet);
@@ -42,7 +41,7 @@ router.get('/success', async (req, res) => {
       const data_login = { id: _id, role };
       const token = await createToken(data_login, 3);
 
-      if (process.env.NODE_ENV === production) {
+      if (process.env.NODE_ENV === "production") {
         res.cookie("u_tkn", token, {
           httpOnly: true,
           secure: true,
