@@ -42,6 +42,7 @@ server.use(session({
   cookie: {
     sameSite: environment === production ? 'None' : 'Lax',
     secure: environment === production ? true : false,
+    domain: environment === production ? ".shadowclan.cl" : undefined,
   }
 }));
 server.use(passport.initialize());
