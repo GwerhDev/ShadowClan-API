@@ -41,7 +41,7 @@ router.post('/create', async (req, res) => {
     if (!user) return res.status(404).send({ logged: false, message: message.user.notfound });
 
     const { name, currentClass, resonance, clan } = req.body || {};
-    if (!name) return res.status(400).send({ error: 'name is required' });
+    if (!name) return res.status(400).send({ error: 'Name is required' });
 
     const characterExists = await characterSchema.findOne({ name });
 
@@ -79,6 +79,22 @@ router.post('/create', async (req, res) => {
       return res.status(409).send({ error: 'Character name already taken' });
     }
     console.error(error);
+    return res.status(500).send({ error: message.user.error });
+  }
+});
+
+
+router.get('/:name', async (req, res) => {
+  try {
+    const { name } = req.params;
+    const characters = await characterSchema.find({ name: { $regex: name, $options: 'i' } }).populate('clan');
+
+    if (characters.length > 0) {
+      return res.status(200).send({ found: true, characters });
+    } else {
+      return res.status(404).send({ found: false });
+    }
+  } catch (error) {
     return res.status(500).send({ error: message.user.error });
   }
 });
