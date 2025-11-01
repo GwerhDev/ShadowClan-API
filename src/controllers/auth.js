@@ -13,7 +13,7 @@ router.get("/", async (req, res) => {
     }
 
     const decodedToken = await decodeToken(userToken);
-    const user = await userSchema.findById(decodedToken.data.id)?.populate("character");
+        const user = await userSchema.findById(decodedToken.data.id)?.populate({ path: 'character', populate: { path: 'clan' } });
     
     if (!user) return res.status(404).send({ logged: false, message: message.user.notfound });
     
@@ -27,10 +27,10 @@ router.get("/", async (req, res) => {
       discriminator,
       role: user.role,
       phone: user.phone,
-      member: user.member,
       status: user.status,
       character: user.character,
     };
+    console.log(userData.character[0].clan);
 
     return res.status(200).json({ logged: true, userData });
 

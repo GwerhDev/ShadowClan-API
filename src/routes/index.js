@@ -2,6 +2,7 @@ const router = require('express').Router();
 const admin = require('../controllers/admin');
 
 const auth = require('../controllers/auth');
+const clan = require('../controllers/clan');
 const task = require('../controllers/task');
 const crest = require('../controllers/crest');
 const guide = require('../controllers/guide');
@@ -16,6 +17,7 @@ const completedTask = require('../controllers/completed-task');
 router.use("/admin", admin);
 
 router.use("/auth", auth);
+router.use("/clan", clan);
 router.use("/task", task);
 router.use("/crest", crest);
 router.use("/guide", guide);

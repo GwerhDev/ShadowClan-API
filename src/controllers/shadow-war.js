@@ -41,14 +41,14 @@ router.get('/next', async (req, res) => {
     })
       .populate('confirmed')
       .populate('enemyClan')
-      .populate('battle.exalted.group1.member')
-      .populate('battle.exalted.group2.member')
-      .populate('battle.eminent.group1.member')
-      .populate('battle.eminent.group2.member')
-      .populate('battle.famed.group1.member')
-      .populate('battle.famed.group2.member')
-      .populate('battle.proud.group1.member')
-      .populate('battle.proud.group2.member');
+      .populate('battle.exalted.group1.character')
+      .populate('battle.exalted.group2.character')
+      .populate('battle.eminent.group1.character')
+      .populate('battle.eminent.group2.character')
+      .populate('battle.famed.group1.character')
+      .populate('battle.famed.group2.character')
+      .populate('battle.proud.group1.character')
+      .populate('battle.proud.group2.character');
 
     if (!nextBattle) {
       const newShadowWar = new ShadowWar({

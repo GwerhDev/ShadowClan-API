@@ -2,10 +2,10 @@ const mongoose = require("mongoose");
 
 const matchSchema = new mongoose.Schema({
   group1: {
-    member: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Member' }],
+    character: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Character' }],
   },
   group2: {
-    member: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Member' }],
+    character: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Character' }],
   },
   result: { type: String },
 });
@@ -20,7 +20,7 @@ const shadowWarSchema = new mongoose.Schema({
     famed: [matchSchema],
     proud: [matchSchema],
   },
-  confirmed: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Member' }],
+  confirmed: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Character' }],
 });
 
 module.exports = mongoose.model('ShadowWar', shadowWarSchema);

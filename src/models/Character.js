@@ -3,6 +3,7 @@ const Warband = require("./Warband");
 
 const characterSchema = new mongoose.Schema({
   name: { type: String, required: true },
+  claimed: { type: Boolean, required: false, default: false },
   resonance: { type: Number, required: false },
   currentClass: { type: String, required: false },
 

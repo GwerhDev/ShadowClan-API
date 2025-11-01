@@ -54,14 +54,14 @@ router.get('/by-date', async (req, res) => {
     const shadowWar = await ShadowWar.findOne({ date: { $gte: startOfDay, $lt: endOfDay } })
       .populate('enemyClan')
       .populate('confirmed')
-      .populate('battle.exalted.group1.member')
-      .populate('battle.exalted.group2.member')
-      .populate('battle.eminent.group1.member')
-      .populate('battle.eminent.group2.member')
-      .populate('battle.famed.group1.member')
-      .populate('battle.famed.group2.member')
-      .populate('battle.proud.group1.member')
-      .populate('battle.proud.group2.member');
+      .populate('battle.exalted.group1.character')
+      .populate('battle.exalted.group2.character')
+      .populate('battle.eminent.group1.character')
+      .populate('battle.eminent.group2.character')
+      .populate('battle.famed.group1.character')
+      .populate('battle.famed.group2.character')
+      .populate('battle.proud.group1.character')
+      .populate('battle.proud.group2.character');
 
     if (!shadowWar) {
       return res.status(404).json({ message: 'Shadow War not found' });
@@ -86,14 +86,14 @@ router.get('/:id', async (req, res) => {
     const shadowWar = await ShadowWar.findById(id)
       .populate('enemyClan')
       .populate('confirmed')
-      .populate('battle.exalted.group1.member')
-      .populate('battle.exalted.group2.member')
-      .populate('battle.eminent.group1.member')
-      .populate('battle.eminent.group2.member')
-      .populate('battle.famed.group1.member')
-      .populate('battle.famed.group2.member')
-      .populate('battle.proud.group1.member')
-      .populate('battle.proud.group2.member')
+      .populate('battle.exalted.group1.character')
+      .populate('battle.exalted.group2.character')
+      .populate('battle.eminent.group1.character')
+      .populate('battle.eminent.group2.character')
+      .populate('battle.famed.group1.character')
+      .populate('battle.famed.group2.character')
+      .populate('battle.proud.group1.character')
+      .populate('battle.proud.group2.character')
 
     if (!shadowWar) {
       return res.status(404).json({ message: 'Shadow War not found' });
@@ -136,14 +136,14 @@ router.patch('/:id', async (req, res) => {
     let shadowWar = await ShadowWar.findById(id)
       .populate('enemyClan')
       .populate('confirmed')
-      .populate('battle.exalted.group1.member')
-      .populate('battle.exalted.group2.member')
-      .populate('battle.eminent.group1.member')
-      .populate('battle.eminent.group2.member')
-      .populate('battle.famed.group1.member')
-      .populate('battle.famed.group2.member')
-      .populate('battle.proud.group1.member')
-      .populate('battle.proud.group2.member');
+      .populate('battle.exalted.group1.character')
+      .populate('battle.exalted.group2.character')
+      .populate('battle.eminent.group1.character')
+      .populate('battle.eminent.group2.character')
+      .populate('battle.famed.group1.character')
+      .populate('battle.famed.group2.character')
+      .populate('battle.proud.group1.character')
+      .populate('battle.proud.group2.character');
 
     if (!shadowWar) {
       return res.status(404).json({ message: 'Shadow War not found' });
