@@ -9,10 +9,12 @@ const passport = require("passport");
 const bodyParser = require("body-parser");
 const cookieParser = require("cookie-parser");
 
-const { privateSecret, allowedOrigins, environment } = require("./config");
+const { privateSecret, allowedOrigins } = require("./config");
 
 server.use((req, res, next) => {
   const origin = req.headers.origin;
+  console.log(origin);
+  console.log(allowedOrigins);
 
   if (allowedOrigins.includes(origin)) {
     res.header('Access-Control-Allow-Origin', origin);

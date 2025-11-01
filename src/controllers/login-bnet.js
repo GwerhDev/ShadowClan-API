@@ -9,14 +9,6 @@ require("dotenv").config();
 
 passport.use('login-bnet', loginBnet);
 
-passport.serializeUser((user, done) => {
-  done(null, user);
-});
-
-passport.deserializeUser((user, done) => {
-  done(null, user);
-});
-
 router.get('/', passport.authenticate('login-bnet'));
 
 router.get('/callback', passport.authenticate('login-bnet', {
