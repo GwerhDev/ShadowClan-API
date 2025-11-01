@@ -1,10 +1,10 @@
 require("dotenv").config();
 const server = require('./app');
 const db = require("./integrations/mongodb");
-const { port, environment } = require("./config");
+const { port } = require("./config");
 
 async function main() {
-  console.log(environment);
+  console.log(process.env.NODE_ENV );
   try {
     await db.connect();
     console.log("Succesfully connected");

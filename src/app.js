@@ -40,9 +40,9 @@ server.use(session({
   resave: false,
   saveUninitialized: false,
   cookie: {
-    sameSite: environment === production ? 'None' : 'Lax',
-    secure: environment === production ? true : false,
-    domain: ".shadowclan.cl"
+    sameSite: process.env.NODE_ENV === production ? 'None' : 'Lax',
+    secure: process.env.NODE_ENV === production ? true : false,
+    domain: '.shadowclan.cl'
   }
 }));
 server.use(passport.initialize());
