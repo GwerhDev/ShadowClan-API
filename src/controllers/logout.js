@@ -1,8 +1,8 @@
+const { clientUrl } = require("../config");
 const { production } = require("../misc/consts");
 const router = require("express").Router();
 
 router.get("/", (req, res) => {
-
   if (process.env.NODE_ENV === production) {
     res.clearCookie("u_tkn", {
       httpOnly: true,
@@ -20,7 +20,7 @@ router.get("/", (req, res) => {
     });
   }
 
-  res.status(200).json({ loggedOut: true });
+  res.status(200).redirect(clientUrl);
 });
 
 

@@ -9,7 +9,9 @@ router.get('/', async (req, res) => {
     const userToken = req.cookies['u_tkn'] || req.headers.authorization?.split(' ')[1];
     const decodedToken = await decodeToken(userToken);
 
-    const user = await userSchema.findById(decodedToken.data.id)?.populate("character");
+    const user = await userSchema.findById(decodedToken.data.id)
+      .populate("character")
+      .populate({ path: 'character', populate: { path: 'clan' } })
     if (!user) return res.status(404).send({ logged: false, message: message.user.notfound });
 
     const { character } = user;

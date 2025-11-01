@@ -13,7 +13,7 @@ router.get("/", async (req, res) => {
     }
 
     const decodedToken = await decodeToken(userToken);
-        const user = await userSchema.findById(decodedToken.data.id)?.populate({ path: 'character', populate: { path: 'clan' } });
+    const user = await userSchema.findById(decodedToken.data.id);
     
     if (!user) return res.status(404).send({ logged: false, message: message.user.notfound });
     

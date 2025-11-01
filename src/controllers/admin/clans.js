@@ -12,7 +12,8 @@ router.get('/', async (req, res) => {
 
     const clans = await Clan.find(query)
       .limit(parseInt(limit))
-      .skip((parseInt(page) - 1) * parseInt(limit));
+      .skip((parseInt(page) - 1) * parseInt(limit))
+      .populate('leader');
 
     return res.status(200).json(clans);
   } catch (error) {

@@ -22,42 +22,44 @@ router.post('/', async (req, res) => {
   }
 });
 
-router.patch('/:id', async (req, res) => {
+router.patch('/', async (req, res) => {
   try {
-    const { id } = req.params;
-    const updatedCharacter = await characterSchema.findByIdAndUpdate(id, req.body, { new: true });
+    const { _id } = req.body;
+    const updatedCharacter = await characterSchema.findByIdAndUpdate(_id, req.body, { new: true });
     if (!updatedCharacter) {
       return res.status(404).send({ message: message.member.notfound });
     }
-    return res.status(200).send({ message: message.member.update.success, character: updatedCharacter });
+    const characters = await characterSchema.find();
+
+    return res.status(200).send({ message: message.member.update.success, characters });
   } catch (error) {
     return res.status(500).send({ error: message.member.error });
   }
 });
 
-router.patch('/:user_id/claim/:character_id', async (req, res) => {
+router.patch('/claim', async (req, res) => {
   try {
-    const { user_id, character_id } = req.params;
-    const updatedCharacter = await characterSchema.findByIdAndUpdate(character_id, { claimed: true }, { new: true });
+    const { userId, characterId } = req.body;
+    const updatedCharacter = await characterSchema.findByIdAndUpdate(characterId, { claimed: true }, { new: true });
     if (!updatedCharacter) {
       return res.status(404).send({ message: message.member.notfound });
     }
-    const updatedUser = await userSchema.findByIdAndUpdate(user_id, { $push: { characters: character_id } }, { new: true });
+    const updatedUser = await userSchema.findByIdAndUpdate(userId, { $push: { character: characterId } }, { new: true });
 
-    return res.status(200).send({ message: message.member.update.success, character: updatedCharacter, user: updatedUser });
+    return res.status(200).send({ message: message.member.update.success, character: updatedUser.character, user: updatedUser });
   } catch (error) {
     return res.status(500).send({ error: message.member.error });
   }
 });
 
-router.patch('/:user_id/unclaim/:character_id', async (req, res) => {
+router.patch('/unclaim', async (req, res) => {
   try {
-    const { user_id, character_id } = req.params;
-    const updatedCharacter = await characterSchema.findByIdAndUpdate(character_id, { claimed: false }, { new: true });
+    const { userId, characterId } = req.body;
+    const updatedCharacter = await characterSchema.findByIdAndUpdate(characterId, { claimed: false }, { new: true });
     if (!updatedCharacter) {
       return res.status(404).send({ message: message.member.notfound });
     }
-    const updatedUser = await userSchema.findByIdAndUpdate(user_id, { $pull: { characters: character_id } }, { new: true });
+    const updatedUser = await userSchema.findByIdAndUpdate(userId, { $pull: { character: characterId } }, { new: true });
 
     return res.status(200).send({ message: message.member.update.success, character: updatedCharacter, user: updatedUser });
   } catch (error) {
