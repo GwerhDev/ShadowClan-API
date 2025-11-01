@@ -54,10 +54,10 @@ router.post('/', async (req, res) => {
 });
 
 // PATCH a clan by ID
-router.patch('/:id', async (req, res) => {
+router.patch('/', async (req, res) => {
   try {
-    const { id } = req.params;
-    const updatedClan = await Clan.findByIdAndUpdate(id, req.body, { new: true });
+    const { _id } = req.body;
+    const updatedClan = await Clan.findByIdAndUpdate(_id, req.body, { new: true });
 
     if (!updatedClan) {
       return res.status(404).json({ message: 'Clan not found' });
@@ -74,12 +74,6 @@ router.patch('/:id', async (req, res) => {
 // DELETE a clan by ID
 router.delete('/:id', async (req, res) => {
   try {
-    const userToken = req.cookies['u_tkn'] || req.headers.authorization?.split(' ')[1];
-    if (!userToken) return res.status(403).json({ message: message.admin.permissionDenied });
-
-    const decodedToken = await decodeToken(userToken);
-    if (decodedToken?.data?.role !== roles.admin) return res.status(403).json({ message: message.admin.permissionDenied });
-
     const { id } = req.params;
     const deletedClan = await Clan.findByIdAndDelete(id);
 
