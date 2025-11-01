@@ -1,6 +1,5 @@
 const router = require('express').Router();
 const clanSchema = require('../models/Clan');
-const characterSchema = require('../models/Character');
 const { message } = require('../messages');
 const { decodeToken } = require('../integrations/jwt');
 

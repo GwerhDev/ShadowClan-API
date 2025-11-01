@@ -1,8 +1,6 @@
 const router = require('express').Router();
 const Clan = require('../../models/Clan');
 const { message } = require('../../messages');
-const { decodeToken } = require('../../integrations/jwt');
-const { roles } = require('../../misc/consts-user-model');
 
 // GET all clans
 router.get('/', async (req, res) => {

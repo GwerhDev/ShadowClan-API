@@ -1,7 +1,5 @@
 const router = require('express').Router();
-const userSchema = require('../../models/User');
 const taskSchema = require('../../models/Task');
-const { decodeToken } = require('../../integrations/jwt');
 const { message } = require('../../messages');
 
 router.post("/", async (req, res) => {

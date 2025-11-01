@@ -3,6 +3,7 @@ const userSchema = require('../models/User');
 const characterSchema = require('../models/Character');
 const { message } = require('../messages');
 const { decodeToken } = require('../integrations/jwt');
+const { character } = require('../misc/consts-models');
 
 router.get('/', async (req, res) => {
   try {
@@ -44,11 +45,11 @@ router.post('/create', async (req, res) => {
 
     const characterExists = await characterSchema.findOne({ name });
 
-    if (characterExists?.claimed) {
+    if (characterExists?.status === character.status.claimed || characterExists.status === character.status.pending) {
       return res.status(409).send({ error: 'Character already claimed' });
     }
 
-    if (characterExists && !characterExists.claimed) {
+    if (characterExists && characterExists.status === character.status.unclaimed) {
       return res.status(409).send({
         error: 'Character already exists, but not claimed',
         characterId: characterExists._id
@@ -56,7 +57,7 @@ router.post('/create', async (req, res) => {
     }
 
     const newCharacter = await characterSchema.create({
-      name, currentClass, resonance, clan, claimed: true,
+      name, currentClass, resonance, clan, status: character.status.claimed,
     });
 
     await userSchema.updateOne(

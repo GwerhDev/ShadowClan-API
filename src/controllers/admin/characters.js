@@ -2,10 +2,17 @@ const router = require('express').Router();
 const userSchema = require('../../models/User');
 const characterSchema = require('../../models/Character');
 const { message } = require('../../messages');
+const { character } = require('../../misc/consts-models');
 
 router.get('/', async (req, res) => {
   try {
-    const characters = await characterSchema.find();
+    const { q, page = 1, limit = 10 } = req.query;
+    const query = q ? { name: { $regex: q, $options: 'i' } } : {};
+
+    const characters = await characterSchema.find(query)
+      .limit(parseInt(limit))
+      .skip((parseInt(page) - 1) * parseInt(limit));
+
     return res.status(200).send(characters);
   } catch (error) {
     return res.status(500).send({ error: message.member.error });
@@ -40,7 +47,7 @@ router.patch('/', async (req, res) => {
 router.patch('/claim', async (req, res) => {
   try {
     const { userId, characterId } = req.body;
-    const updatedCharacter = await characterSchema.findByIdAndUpdate(characterId, { claimed: true }, { new: true });
+    const updatedCharacter = await characterSchema.findByIdAndUpdate(characterId, { status: character.status.claimed }, { new: true });
     if (!updatedCharacter) {
       return res.status(404).send({ message: message.member.notfound });
     }
@@ -55,7 +62,7 @@ router.patch('/claim', async (req, res) => {
 router.patch('/unclaim', async (req, res) => {
   try {
     const { userId, characterId } = req.body;
-    const updatedCharacter = await characterSchema.findByIdAndUpdate(characterId, { claimed: false }, { new: true });
+    const updatedCharacter = await characterSchema.findByIdAndUpdate(characterId, { status: character.status.unclaimed }, { new: true });
     if (!updatedCharacter) {
       return res.status(404).send({ message: message.member.notfound });
     }

@@ -1,7 +1,5 @@
 const router = require('express').Router();
-const { decodeToken } = require('../../integrations/jwt');
-const { message } = require('../../messages');
-const { roles, status } = require('../../misc/consts-user-model');
+const { status } = require('../../misc/consts-user-model');
 const userSchema = require('../../models/User');
 
 router.get('/', async(req, res) => {
