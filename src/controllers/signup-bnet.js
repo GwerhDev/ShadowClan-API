@@ -37,7 +37,7 @@ router.get('/success', async (req, res) => {
       battletag: user.battletag,
       provider: user.provider,
       status: status.pending,
-      role: roles.member,
+      role: roles.user,
     });
 
     await newUser.save();

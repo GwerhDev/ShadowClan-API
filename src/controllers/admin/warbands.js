@@ -10,7 +10,7 @@ router.post('/create', async (req, res) => {
     if (!userToken) return res.status(403).json({ message: message.admin.permissionDenied });
 
     const decodedToken = await decodeToken(userToken);
-    if (decodedToken?.data?.role !== roles.admin) return res.status(403).json({ message: message.admin.permissionDenied });
+    if (decodedToken?.data?.role !== roles.admin || decodedToken?.data?.role !== roles.superAdmin) return res.status(403).json({ message: message.admin.permissionDenied });
 
     const { name, leader } = req.body;
     const newWarband = new warbandSchema({ name, leader });
@@ -28,7 +28,7 @@ router.patch('/:id', async (req, res) => {
     if (!userToken) return res.status(403).json({ message: message.admin.permissionDenied });
 
     const decodedToken = await decodeToken(userToken);
-    if (decodedToken?.data?.role !== roles.admin) return res.status(403).json({ message: message.admin.permissionDenied });
+    if (decodedToken?.data?.role !== roles.admin || decodedToken?.data?.role !== roles.superAdmin) return res.status(403).json({ message: message.admin.permissionDenied });
 
     const { id } = req.params;
     const { type, quantity, legendaryFound } = req.body;
@@ -51,7 +51,7 @@ router.delete('/:id', async (req, res) => {
     if (!userToken) return res.status(403).json({ message: message.admin.permissionDenied });
 
     const decodedToken = await decodeToken(userToken);
-    if (decodedToken?.data?.role !== roles.admin) return res.status(403).json({ message: message.admin.permissionDenied });
+    if (decodedToken?.data?.role !== roles.admin || decodedToken?.data?.role !== roles.superAdmin) return res.status(403).json({ message: message.admin.permissionDenied });
 
     const { id } = req.params;
 

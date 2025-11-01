@@ -6,13 +6,7 @@ const { message } = require('../../messages');
 
 router.post("/", async (req, res) => {
   try {
-    const userToken = req.cookies['u_tkn'] || req.headers.authorization?.split(' ')[1];
-    const decodedToken = await decodeToken(userToken);
-
-    const user = await userSchema.findOne({ _id: decodedToken.data.id })
-    if (!user) return res.status(404).send({ logged: false, message: message.user.notfound });
-
-    const { body } = req || null;
+    const { body } = req;
     const fixedTasks = await taskSchema.find({ type: body.type });
 
     return res.status(200).send(fixedTasks);
@@ -24,13 +18,7 @@ router.post("/", async (req, res) => {
 
 router.post("/create", async (req, res) => {
   try {
-    const userToken = req.cookies['u_tkn'] || req.headers.authorization?.split(' ')[1];
-    const decodedToken = await decodeToken(userToken);
-
-    const user = await userSchema.findOne({ _id: decodedToken.data.id });
-    if (!user) return res.status(404).send({ logged: false, message: message.user.notfound });
-
-    const { body } = req || null;
+    const { body } = req;
 
     const newTask = new taskSchema(body);
     await newTask.save();

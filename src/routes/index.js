@@ -13,8 +13,10 @@ const loginBnet = require('../controllers/login-bnet');
 const shadowWar = require('../controllers/shadow-war');
 const signupBnet = require('../controllers/signup-bnet');
 const completedTask = require('../controllers/completed-task');
+const { roles } = require('../misc/consts-user-model');
+const { authorizeRoles } = require('../middlewares');
 
-router.use("/admin", admin);
+router.use("/admin",  authorizeRoles([roles.superAdmin, roles.admin]),  admin);
 
 router.use("/auth", auth);
 router.use("/clan", clan);

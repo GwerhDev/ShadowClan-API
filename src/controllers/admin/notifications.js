@@ -6,12 +6,6 @@ const userSchema = require('../../models/User');
 
 router.get('/', async(req, res) => {
   try {
-    const userToken = req.cookies['u_tkn'] || req.headers.authorization?.split(' ')[1];
-    if (!userToken) return res.status(403).json({ message: message.admin.permissionDenied });
-
-    const decodedToken = await decodeToken(userToken);
-    if (decodedToken?.data?.role !== roles.admin) return res.status(403).json({ message: message.admin.permissionDenied });
-
     const pendingUsers = await userSchema.find({
       status: status.pending,
     });

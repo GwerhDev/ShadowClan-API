@@ -6,12 +6,6 @@ const userSchema = require('../../models/User');
 
 router.get('/', async(req, res) => {
   try {
-    const userToken = req.cookies['u_tkn'] || req.headers.authorization?.split(' ')[1];
-    if (!userToken) return res.status(403).json({ message: message.admin.permissionDenied });
-
-    const decodedToken = await decodeToken(userToken);
-    if (decodedToken?.data?.role !== roles.admin) return res.status(403).json({ message: message.admin.permissionDenied });
-
     const response = await userSchema.find();
     return res.json(response);    
   } catch (error) {
@@ -21,14 +15,9 @@ router.get('/', async(req, res) => {
 
 router.patch('/:id', async(req, res) => {
   try {
-    const userToken = req.cookies['u_tkn'] || req.headers.authorization?.split(' ')[1];
-    if (!userToken) return res.status(403).json({ message: message.admin.permissionDenied });
+    const { id } = req.params;
+    const { body } = req;
 
-    const decodedToken = await decodeToken(userToken);
-    if (decodedToken?.data?.role !== roles.admin) return res.status(403).json({ message: message.admin.permissionDenied });
-
-    const { id } = req.params || null;
-    const { body } = req || null;
     await userSchema.findByIdAndUpdate(id, body);
     return res.status(200).send({ message: message.admin.updateuser.success });
   } catch (error) {
@@ -38,12 +27,6 @@ router.patch('/:id', async(req, res) => {
 
 router.delete('/:id', async(req, res) => {
   try {
-    const userToken = req.cookies['u_tkn'] || req.headers.authorization?.split(' ')[1];
-    if (!userToken) return res.status(403).json({ message: message.admin.permissionDenied });
-
-    const decodedToken = await decodeToken(userToken);
-    if (decodedToken?.data?.role !== roles.admin) return res.status(403).json({ message: message.admin.permissionDenied });
-
     const { id } = req.params || null;
     await userSchema.findByIdAndDelete(id);
     return res.status(200).send({ message: message.admin.deleteuser.success });

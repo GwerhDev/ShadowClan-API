@@ -7,12 +7,6 @@ const { roles } = require('../../misc/consts-user-model');
 // GET all clans
 router.get('/', async (req, res) => {
   try {
-    const userToken = req.cookies['u_tkn'] || req.headers.authorization?.split(' ')[1];
-    if (!userToken) return res.status(403).json({ message: message.admin.permissionDenied });
-
-    const decodedToken = await decodeToken(userToken);
-    if (decodedToken?.data?.role !== roles.admin) return res.status(403).json({ message: message.admin.permissionDenied });
-
     const { q, page = 1, limit = 10 } = req.query;
     const query = q ? { name: { $regex: q, $options: 'i' } } : {};
 
@@ -29,12 +23,6 @@ router.get('/', async (req, res) => {
 // GET a single clan by ID
 router.get('/:id', async (req, res) => {
   try {
-    const userToken = req.cookies['u_tkn'] || req.headers.authorization?.split(' ')[1];
-    if (!userToken) return res.status(403).json({ message: message.admin.permissionDenied });
-
-    const decodedToken = await decodeToken(userToken);
-    if (decodedToken?.data?.role !== roles.admin) return res.status(403).json({ message: message.admin.permissionDenied });
-
     const { id } = req.params;
     const clan = await Clan.findById(id);
 
@@ -51,12 +39,6 @@ router.get('/:id', async (req, res) => {
 // POST a new clan
 router.post('/', async (req, res) => {
   try {
-    const userToken = req.cookies['u_tkn'] || req.headers.authorization?.split(' ')[1];
-    if (!userToken) return res.status(403).json({ message: message.admin.permissionDenied });
-
-    const decodedToken = await decodeToken(userToken);
-    if (decodedToken?.data?.role !== roles.admin) return res.status(403).json({ message: message.admin.permissionDenied });
-
     const { name } = req.body;
     const newClan = new Clan({ name });
 
@@ -73,12 +55,6 @@ router.post('/', async (req, res) => {
 // PATCH a clan by ID
 router.patch('/:id', async (req, res) => {
   try {
-    const userToken = req.cookies['u_tkn'] || req.headers.authorization?.split(' ')[1];
-    if (!userToken) return res.status(403).json({ message: message.admin.permissionDenied });
-
-    const decodedToken = await decodeToken(userToken);
-    if (decodedToken?.data?.role !== roles.admin) return res.status(403).json({ message: message.admin.permissionDenied });
-
     const { id } = req.params;
     const updatedClan = await Clan.findByIdAndUpdate(id, req.body, { new: true });
 

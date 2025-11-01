@@ -5,10 +5,9 @@ module.exports = {
     inactive: "inactive",
   },
   roles: {
+    superAdmin: "super_admin",
     admin: "admin",
-    member: "member",
-    leader: "leader",
-    official: "official",
+    user: "user",
   },
   methods: {
     bnet: "bnet",

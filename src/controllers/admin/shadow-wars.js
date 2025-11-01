@@ -7,12 +7,6 @@ const { roles } = require('../../misc/consts-user-model');
 // GET all shadow wars
 router.get('/', async (req, res) => {
   try {
-    const userToken = req.cookies['u_tkn'] || req.headers.authorization?.split(' ')[1];
-    if (!userToken) return res.status(403).json({ message: message.admin.permissionDenied });
-
-    const decodedToken = await decodeToken(userToken);
-    if (decodedToken?.data?.role !== roles.admin) return res.status(403).json({ message: message.admin.permissionDenied });
-
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
@@ -39,12 +33,6 @@ router.get('/', async (req, res) => {
 // GET a single shadow war by ID
 router.get('/by-date', async (req, res) => {
   try {
-    const userToken = req.cookies['u_tkn'] || req.headers.authorization?.split(' ')[1];
-    if (!userToken) return res.status(403).json({ message: message.admin.permissionDenied });
-
-    const decodedToken = await decodeToken(userToken);
-    if (decodedToken?.data?.role !== roles.admin) return res.status(403).json({ message: message.admin.permissionDenied });
-
     const { date } = req.query;
     const searchDate = new Date(date);
 
@@ -76,12 +64,6 @@ router.get('/by-date', async (req, res) => {
 // GET a single shadow war by ID
 router.get('/:id', async (req, res) => {
   try {
-    const userToken = req.cookies['u_tkn'] || req.headers.authorization?.split(' ')[1];
-    if (!userToken) return res.status(403).json({ message: message.admin.permissionDenied });
-
-    const decodedToken = await decodeToken(userToken);
-    if (decodedToken?.data?.role !== roles.admin) return res.status(403).json({ message: message.admin.permissionDenied });
-
     const { id } = req.params;
     const shadowWar = await ShadowWar.findById(id)
       .populate('enemyClan')
@@ -108,12 +90,6 @@ router.get('/:id', async (req, res) => {
 // POST a new shadow war
 router.post('/', async (req, res) => {
   try {
-    const userToken = req.cookies['u_tkn'] || req.headers.authorization?.split(' ')[1];
-    if (!userToken) return res.status(403).json({ message: message.admin.permissionDenied });
-
-    const decodedToken = await decodeToken(userToken);
-    if (decodedToken?.data?.role !== roles.admin) return res.status(403).json({ message: message.admin.permissionDenied });
-
     const newShadowWar = new ShadowWar(req.body);
 
     await newShadowWar.save();
