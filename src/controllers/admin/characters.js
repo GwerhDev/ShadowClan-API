@@ -47,13 +47,18 @@ router.patch('/', async (req, res) => {
 router.patch('/claim', async (req, res) => {
   try {
     const { userId, characterId } = req.body;
-    const updatedCharacter = await characterSchema.findByIdAndUpdate(characterId, { status: character.status.claimed }, { new: true });
-    if (!updatedCharacter) {
-      return res.status(404).send({ message: message.member.notfound });
-    }
-    const updatedUser = await userSchema.findByIdAndUpdate(userId, { $push: { character: characterId } }, { new: true });
 
-    return res.status(200).send({ message: message.member.update.success, character: updatedUser.character, user: updatedUser });
+    const updatedCharacter = await characterSchema.findByIdAndUpdate(characterId, { status: character.status.claimed }, { new: true });
+    if (!updatedCharacter) return res.status(404).send({ message: message.member.notfound });
+
+    const updatedUser = await userSchema.findByIdAndUpdate(userId, { $push: { character: characterId } }, { new: true });
+    if (!updatedUser) return res.status(404).send({ logged: false, message: message.user.notfound });
+
+    const characters = await characterSchema.find();
+    const users = await userSchema.find();
+
+    return res.status(200).send({ message: message.member.update.success, characters, users });
+
   } catch (error) {
     return res.status(500).send({ error: message.member.error });
   }
@@ -62,13 +67,18 @@ router.patch('/claim', async (req, res) => {
 router.patch('/unclaim', async (req, res) => {
   try {
     const { userId, characterId } = req.body;
+    
     const updatedCharacter = await characterSchema.findByIdAndUpdate(characterId, { status: character.status.unclaimed }, { new: true });
-    if (!updatedCharacter) {
-      return res.status(404).send({ message: message.member.notfound });
-    }
-    const updatedUser = await userSchema.findByIdAndUpdate(userId, { $pull: { character: characterId } }, { new: true });
+    if (!updatedCharacter) return res.status(404).send({ message: message.member.notfound });
 
-    return res.status(200).send({ message: message.member.update.success, character: updatedCharacter, user: updatedUser });
+    const updatedUser = await userSchema.findByIdAndUpdate(userId, { $pull: { character: characterId } }, { new: true });
+    if (!updatedUser) return res.status(404).send({ logged: false, message: message.user.notfound });
+
+    const characters = await characterSchema.find();
+    const users = await userSchema.find();
+
+    return res.status(200).send({ message: message.member.update.success, characters, users });
+
   } catch (error) {
     return res.status(500).send({ error: message.member.error });
   }
