@@ -18,8 +18,7 @@ router.get("/", (req, res) => {
       path: "/",
     });
   }
-
-  res.status(200).redirect(clientUrl);
+  res.status(200).redirect(clientUrl + "/login");
 });
 
 
