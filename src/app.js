@@ -5,11 +5,13 @@ const routes = require("./routes");
 const morgan = require("morgan");
 const session = require("express-session");
 const passport = require("passport");
+const MongoStore = require("connect-mongo");
 
 const bodyParser = require("body-parser");
 const cookieParser = require("cookie-parser");
 
 const { privateSecret, allowedOrigins } = require("./config");
+const DB = require("./integrations/mongodb");
 
 server.use((req, res, next) => {
   const origin = req.headers.origin;
@@ -40,6 +42,10 @@ server.use(session({
   secret: privateSecret,
   resave: false,
   saveUninitialized: false,
+  store: MongoStore.create({
+    clientPromise: DB.connect(),
+    stringify: false,
+  }),
   cookie: {
     sameSite: process.env.NODE_ENV === "production" ? 'None' : 'Lax',
     secure: process.env.NODE_ENV === "production" ? true : false,
