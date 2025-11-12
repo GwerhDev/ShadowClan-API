@@ -1,19 +1,18 @@
 const express = require("express");
 const server = express();
-server.set('trust proxy', 1); // Add this line
+server.set('trust proxy', 1);
 const routes = require("./routes");
 
 const morgan = require("morgan");
 const session = require("express-session");
 const passport = require("passport");
 const MongoStore = require("connect-mongo");
-const mongoose = require("mongoose"); // Added mongoose import
+const mongoose = require("mongoose");
 
 const bodyParser = require("body-parser");
 const cookieParser = require("cookie-parser");
 
-const { privateSecret, allowedOrigins, mongodbString } = require("./config"); // Added mongodbString
-const DB = require("./integrations/mongodb");
+const { privateSecret, allowedOrigins } = require("./config");
 
 server.use((req, res, next) => {
   const origin = req.headers.origin;
@@ -49,13 +48,11 @@ server.use(session({
   cookie: {
     sameSite: process.env.NODE_ENV === "production" ? 'None' : 'Lax',
     secure: process.env.NODE_ENV === "production" ? true : false,
-    // Removed domain setting
   }
 }));
 server.use(passport.initialize());
 server.use(passport.session());
 
-// Import User model
 const User = require('./models/User');
 
 passport.serializeUser((user, done) => {
