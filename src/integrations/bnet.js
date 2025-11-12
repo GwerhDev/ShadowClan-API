@@ -5,7 +5,6 @@ const loginBnet = new BnetStrategy({
   clientID: bnetClient,
   clientSecret: bnetSecret,
   callbackURL: `${apiUrl}/login-bnet/callback`,
-  state: 200,
   region: "us",
   scope: "openid",
 }, function (accessToken, refreshToken, profile, done) {
@@ -27,7 +26,6 @@ const signupBnet = new BnetStrategy({
   clientID: bnetClient,
   clientSecret: bnetSecret,
   callbackURL: `${apiUrl}/signup-bnet/callback`,
-  state: 200,
   region: "us",
   scope: "openid",
 }, function (accessToken, refreshToken, profile, done) {
