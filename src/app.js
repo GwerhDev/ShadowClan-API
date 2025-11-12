@@ -41,7 +41,7 @@ server.use(morgan('dev'));
 server.use(session({
   secret: privateSecret,
   resave: false,
-  saveUninitialized: true, // Changed to true for debugging
+  saveUninitialized: false,
   store: MongoStore.create({
     clientPromise: mongoose.connection.asPromise().then(con => con.getClient()),
     stringify: false,

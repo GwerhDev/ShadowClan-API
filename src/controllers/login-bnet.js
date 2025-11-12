@@ -10,34 +10,28 @@ require("dotenv").config();
 passport.use('login-bnet', loginBnet);
 
 router.get('/', function(req, res, next) {
-  console.log('Session before Bnet redirect (GET /):', req.session);
-  console.log('req.session.passport before Bnet redirect:', req.session.passport); // Add this log
-  console.log('req.session[\'oauth2-state\'] before Bnet redirect:', req.session['oauth2-state']); // Add this log
   req.session.save(function (err) {
     if (err) {
-      console.error('Error saving session before Bnet redirect:', err);
+      console.error('Error saving session before Bnet redirect:', err); // Keep this error log
       return next(err);
     }
-    passport.authenticate('login-bnet', { state: true })(req, res, next); // Added { state: true }
+    passport.authenticate('login-bnet', { state: true })(req, res, next);
   });
 });
 
 router.get('/callback', function(req, res, next) {
-  console.log('Session after Bnet callback (GET /callback):', req.session);
-  console.log('req.session.passport after Bnet callback:', req.session.passport); // Add this log
-  console.log('req.session[\'oauth2-state\'] after Bnet callback:', req.session['oauth2-state']); // Add this log
   passport.authenticate('login-bnet', function(err, user, info) {
     if (err) {
-      console.error('Passport-Bnet Authenticate Error:', err);
+      console.error('Passport-Bnet Authenticate Error:', err); // Keep this error log
       return res.redirect('/login-bnet/failure');
     }
     if (!user) {
-      console.log('Passport-Bnet Authenticate Info:', info);
+      console.log('Passport-Bnet Authenticate Info:', info); // Keep this info log
       return res.redirect('/login-bnet/failure');
     }
     req.logIn(user, function(err) {
       if (err) {
-        console.error('Passport-Bnet Login Error:', err);
+        console.error('Passport-Bnet Login Error:', err); // Keep this error log
         return res.redirect('/login-bnet/failure');
       }
       return res.redirect('/login-bnet/success');
