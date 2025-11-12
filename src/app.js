@@ -11,7 +11,7 @@ const mongoose = require("mongoose"); // Added mongoose import
 const bodyParser = require("body-parser");
 const cookieParser = require("cookie-parser");
 
-const { privateSecret, allowedOrigins } = require("./config");
+const { privateSecret, allowedOrigins, mongodbString } = require("./config"); // Added mongodbString
 const DB = require("./integrations/mongodb");
 
 server.use((req, res, next) => {
@@ -53,21 +53,6 @@ server.use(session({
 }));
 server.use(passport.initialize());
 server.use(passport.session());
-
-// Test session middleware
-server.use((req, res, next) => {
-  if (!req.session.test) {
-    req.session.test = 'session_test_value';
-    console.log('Setting req.session.test:', req.session.test);
-    req.session.save((err) => {
-      if (err) console.error('Error saving test session:', err);
-      next();
-    });
-  } else {
-    console.log('Reading req.session.test:', req.session.test);
-    next();
-  }
-});
 
 // Import User model
 const User = require('./models/User');
