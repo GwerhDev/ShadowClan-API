@@ -23,6 +23,10 @@ const loginBnet = new BnetStrategy({
   });
 });
 
+loginBnet.on('error', function(err) {
+  console.error('Passport-Bnet Strategy Error (loginBnet):', err);
+});
+
 const signupBnet = new BnetStrategy({
   clientID: bnetClient,
   clientSecret: bnetSecret,
@@ -43,6 +47,10 @@ const signupBnet = new BnetStrategy({
       return done(error);
     }
   });
+});
+
+signupBnet.on('error', function(err) {
+  console.error('Passport-Bnet Strategy Error (signupBnet):', err);
 });
 
 module.exports = {
