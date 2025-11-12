@@ -54,6 +54,22 @@ server.use(session({
 server.use(passport.initialize());
 server.use(passport.session());
 
+// Test session middleware
+server.use((req, res, next) => {
+  if (!req.session.test) {
+    req.session.test = 'session_test_value';
+    console.log('Setting req.session.test:', req.session.test);
+    req.session.save((err) => {
+      if (err) console.error('Error saving test session:', err);
+      next();
+    });
+  } else {
+    console.log('Reading req.session.test:', req.session.test);
+    next();
+  }
+});
+
+// Import User model
 const User = require('./models/User');
 
 passport.serializeUser((user, done) => {
