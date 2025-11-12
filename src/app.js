@@ -6,6 +6,7 @@ const morgan = require("morgan");
 const session = require("express-session");
 const passport = require("passport");
 const MongoStore = require("connect-mongo");
+const mongoose = require("mongoose"); // Added mongoose import
 
 const bodyParser = require("body-parser");
 const cookieParser = require("cookie-parser");
@@ -43,7 +44,7 @@ server.use(session({
   resave: false,
   saveUninitialized: false,
   store: MongoStore.create({
-    clientPromise: DB.connect(),
+    clientPromise: mongoose.connection.asPromise().then(con => con.getClient()), // Modified clientPromise
     stringify: false,
   }),
   cookie: {
