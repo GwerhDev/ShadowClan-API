@@ -48,7 +48,7 @@ server.use(session({
   cookie: {
     sameSite: process.env.NODE_ENV === "production" ? 'None' : 'Lax',
     secure: process.env.NODE_ENV === "production" ? true : false,
-    domain: '.shadowclan.cl'
+    // Removed domain setting
   }
 }));
 server.use(passport.initialize());
