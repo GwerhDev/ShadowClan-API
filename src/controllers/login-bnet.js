@@ -11,10 +11,25 @@ passport.use('login-bnet', loginBnet);
 
 router.get('/', passport.authenticate('login-bnet'));
 
-router.get('/callback', passport.authenticate('login-bnet', {
-  successRedirect: '/login-bnet/success',
-  failureRedirect: '/login-bnet/failure'
-}));
+router.get('/callback', function(req, res, next) {
+  passport.authenticate('login-bnet', function(err, user, info) {
+    if (err) {
+      console.error('Passport-Bnet Authenticate Error:', err);
+      return res.redirect('/login-bnet/failure');
+    }
+    if (!user) {
+      console.log('Passport-Bnet Authenticate Info:', info);
+      return res.redirect('/login-bnet/failure');
+    }
+    req.logIn(user, function(err) {
+      if (err) {
+        console.error('Passport-Bnet Login Error:', err);
+        return res.redirect('/login-bnet/failure');
+      }
+      return res.redirect('/login-bnet/success');
+    });
+  })(req, res, next);
+});
 
 router.get('/failure', (req, res) => {
   return res.status(400).redirect(`${clientUrl}/login/login-error`);
