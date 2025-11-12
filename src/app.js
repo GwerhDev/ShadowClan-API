@@ -44,7 +44,7 @@ server.use(session({
   resave: false,
   saveUninitialized: false,
   store: MongoStore.create({
-    clientPromise: mongoose.connection.asPromise().then(con => con.getClient()), // Modified clientPromise
+    clientPromise: mongoose.connection.asPromise().then(con => con.getClient()),
     stringify: false,
   }),
   cookie: {
