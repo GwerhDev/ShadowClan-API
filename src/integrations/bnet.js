@@ -7,6 +7,7 @@ const loginBnet = new BnetStrategy({
   callbackURL: `${apiUrl}/login-bnet/callback`,
   region: "us",
   scope: "openid",
+  state: true, // Added state: true
 }, function (accessToken, refreshToken, profile, done) {
   process.nextTick(async function () {
     try {
@@ -28,6 +29,7 @@ const signupBnet = new BnetStrategy({
   callbackURL: `${apiUrl}/signup-bnet/callback`,
   region: "us",
   scope: "openid",
+  state: true, // Added state: true
 }, function (accessToken, refreshToken, profile, done) {
   process.nextTick(async function () {
     try {
