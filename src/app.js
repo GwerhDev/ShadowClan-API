@@ -1,5 +1,6 @@
 const express = require("express");
 const server = express();
+server.set('trust proxy', 1); // Add this line
 const routes = require("./routes");
 
 const morgan = require("morgan");
