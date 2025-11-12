@@ -16,8 +16,6 @@ const DB = require("./integrations/mongodb");
 
 server.use((req, res, next) => {
   const origin = req.headers.origin;
-  console.log(origin);
-  console.log(allowedOrigins);
 
   if (allowedOrigins.includes(origin)) {
     res.header('Access-Control-Allow-Origin', origin);
