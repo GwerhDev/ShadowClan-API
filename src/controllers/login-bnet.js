@@ -18,7 +18,7 @@ router.get('/', function(req, res, next) {
       console.error('Error saving session before Bnet redirect:', err);
       return next(err);
     }
-    passport.authenticate('login-bnet')(req, res, next);
+    passport.authenticate('login-bnet', { state: true })(req, res, next); // Added { state: true }
   });
 });
 
