@@ -11,16 +11,13 @@ const loginBnet = new BnetStrategy({
 }, function (accessToken, refreshToken, profile, done) {
   process.nextTick(async function () {
     try {
-      console.log("BnetStrategy verify callback - profile:", profile); // Add this log
       const user = {
         battlenetId: profile.id,
         battletag: profile.battletag,
         provider: profile.provider,
       };
-      console.log("BnetStrategy verify callback - user object:", user); // Add this log
       return done(null, user);
     } catch (error) {
-      console.error("BnetStrategy verify callback - error:", error); // Add this log
       return done(error);
     }
   });
@@ -36,16 +33,13 @@ const signupBnet = new BnetStrategy({
 }, function (accessToken, refreshToken, profile, done) {
   process.nextTick(async function () {
     try {
-      console.log("BnetStrategy verify callback - profile:", profile); // Add this log
       const user = {
         battlenetId: profile.id,
         battletag: profile.battletag,
         provider: profile.provider,
       };
-      console.log("BnetStrategy verify callback - user object:", user); // Add this log
       return done(null, user);
     } catch (error) {
-      console.error("BnetStrategy verify callback - error:", error); // Add this log
       return done(error);
     }
   });
