@@ -56,6 +56,21 @@ server.use(session({
 server.use(passport.initialize());
 server.use(passport.session());
 
+const User = require('./models/User');
+
+passport.serializeUser((user, done) => {
+  done(null, user.id);
+});
+
+passport.deserializeUser(async (id, done) => {
+  try {
+    const user = await User.findById(id);
+    done(null, user);
+  } catch (err) {
+    done(err, null);
+  }
+});
+
 server.use('/', routes);
 
 module.exports = server;
