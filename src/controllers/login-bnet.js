@@ -9,7 +9,15 @@ require("dotenv").config();
 
 passport.use('login-bnet', loginBnet);
 
-router.get('/', passport.authenticate('login-bnet'));
+router.get('/', function(req, res, next) {
+  req.session.save(function (err) {
+    if (err) {
+      console.error('Error saving session before Bnet redirect:', err);
+      return next(err);
+    }
+    passport.authenticate('login-bnet')(req, res, next);
+  });
+});
 
 router.get('/callback', function(req, res, next) {
   passport.authenticate('login-bnet', function(err, user, info) {
