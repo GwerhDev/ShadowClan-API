@@ -7,7 +7,7 @@ const loginBnet = new BnetStrategy({
   callbackURL: `${apiUrl}/login-bnet/callback`,
   region: "us",
   scope: "openid",
-  state: true, // Added state: true
+  state: true,
 }, function (accessToken, refreshToken, profile, done) {
   process.nextTick(async function () {
     try {
