@@ -8,6 +8,7 @@ module.exports = {
     superAdmin: "super_admin",
     admin: "admin",
     user: "user",
+    walker: "walker",
   },
   methods: {
     bnet: "bnet",

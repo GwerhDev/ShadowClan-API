@@ -13,6 +13,7 @@ const loginBnet = require('../controllers/login-bnet');
 const shadowWar = require('../controllers/shadow-war');
 const signupBnet = require('../controllers/signup-bnet');
 const completedTask = require('../controllers/completed-task');
+const clanRequest = require('../controllers/clan-request');
 const { roles } = require('../misc/consts-user-model');
 const { authorizeRoles } = require('../middlewares');
 
@@ -30,5 +31,6 @@ router.use("/shadow-war", shadowWar);
 router.use("/login-bnet", loginBnet);
 router.use("/signup-bnet", signupBnet);
 router.use("/completed-task", completedTask);
+router.use("/clan-request", clanRequest);
 
 module.exports = router;

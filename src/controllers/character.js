@@ -45,7 +45,7 @@ router.post('/create', async (req, res) => {
 
     const characterExists = await characterSchema.findOne({ name });
 
-    if (characterExists?.status === character.status.claimed || characterExists.status === character.status.pending) {
+    if (characterExists?.status === character.status.claimed || characterExists?.status === character.status.pending) {
       return res.status(409).send({ error: 'Character already claimed' });
     }
 
