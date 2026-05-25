@@ -7,6 +7,8 @@ module.exports = {
   roles: {
     superAdmin: "super_admin",
     admin: "admin",
+    leader: "leader",
+    officer: "officer",
     user: "user",
     walker: "walker",
   },
