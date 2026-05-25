@@ -28,12 +28,16 @@ const charIsOfficerOrLeader = (clan, user) =>
 
 // ── Routes ───────────────────────────────────────────────────────────────────
 
-// GET — clan with all members populated (any clan-management user)
+// GET — clan with all members populated + pending invitations
 router.get('/:clanId', async (req, res) => {
   try {
     const clan = await populate(Clan.findById(req.params.clanId));
     if (!clan) return res.status(404).json({ message: 'Clan not found' });
-    return res.status(200).json(clan);
+    const pendingInvitations = await ClanInvitation.find({ clan: req.params.clanId, status: 'pending' })
+      .populate('character', 'name currentClass resonance')
+      .populate('invitedByUser', 'battletag')
+      .sort({ createdAt: -1 });
+    return res.status(200).json({ ...clan.toObject(), pendingInvitations });
   } catch (error) {
     return res.status(500).json({ error: message.user.error });
   }
@@ -124,7 +128,7 @@ router.post('/:clanId/characters', async (req, res) => {
 router.patch('/:clanId/members/:characterId', async (req, res) => {
   try {
     const { clanId, characterId } = req.params;
-    const { currentClass, resonance } = req.body;
+    const { currentClass, resonance, memberStatus } = req.body;
 
     const clan = await Clan.findById(clanId);
     if (!clan) return res.status(404).json({ message: 'Clan not found' });
@@ -138,8 +142,9 @@ router.patch('/:clanId/members/:characterId', async (req, res) => {
     if (!inClan) return res.status(400).json({ message: 'El personaje no pertenece a este clan' });
 
     const update = {};
-    if (currentClass !== undefined) update.currentClass = currentClass || null;
-    if (resonance    !== undefined) update.resonance    = Number(resonance);
+    if (currentClass  !== undefined) update.currentClass  = currentClass || null;
+    if (resonance     !== undefined) update.resonance     = Number(resonance);
+    if (memberStatus  !== undefined) update.memberStatus  = memberStatus;
 
     await Character.findByIdAndUpdate(characterId, update);
     return res.status(200).json(await populate(Clan.findById(clanId)));
@@ -187,6 +192,27 @@ router.patch('/:clanId/members/:characterId/role', async (req, res) => {
 
     await clan.save();
     return res.status(200).json(await populate(Clan.findById(clanId)));
+  } catch (error) {
+    return res.status(500).json({ error: message.user.error });
+  }
+});
+
+// GET — list pending invitations sent by the clan (leader or officer)
+router.get('/:clanId/invitations', async (req, res) => {
+  try {
+    const clan = await Clan.findById(req.params.clanId);
+    if (!clan) return res.status(404).json({ message: 'Clan not found' });
+
+    if (!charIsOfficerOrLeader(clan, req.user)) {
+      return res.status(403).json({ message: 'Se requiere ser líder u oficial del clan' });
+    }
+
+    const invitations = await ClanInvitation.find({ clan: req.params.clanId, status: 'pending' })
+      .populate('character', 'name currentClass resonance')
+      .populate('invitedByUser', 'battletag')
+      .sort({ createdAt: -1 });
+
+    return res.status(200).json(invitations);
   } catch (error) {
     return res.status(500).json({ error: message.user.error });
   }
@@ -251,6 +277,26 @@ router.post('/:clanId/invitations', async (req, res) => {
     }
 
     return res.status(201).json({ message: 'Invitación enviada' });
+  } catch (error) {
+    return res.status(500).json({ error: message.user.error });
+  }
+});
+
+// DELETE — cancel a pending invitation (leader or officer)
+router.delete('/:clanId/invitations/:invitationId', async (req, res) => {
+  try {
+    const clan = await Clan.findById(req.params.clanId);
+    if (!clan) return res.status(404).json({ message: 'Clan not found' });
+    if (!charIsOfficerOrLeader(clan, req.user)) {
+      return res.status(403).json({ message: 'Se requiere ser líder u oficial del clan' });
+    }
+    const invitation = await ClanInvitation.findOneAndDelete({
+      _id: req.params.invitationId,
+      clan: req.params.clanId,
+      status: 'pending',
+    });
+    if (!invitation) return res.status(404).json({ message: 'Invitación no encontrada' });
+    return res.status(200).json({ message: 'Invitación cancelada' });
   } catch (error) {
     return res.status(500).json({ error: message.user.error });
   }

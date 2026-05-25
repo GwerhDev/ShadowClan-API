@@ -84,6 +84,33 @@ router.post('/create', async (req, res) => {
 });
 
 
+router.put('/:id', async (req, res) => {
+  try {
+    const userToken = req.cookies['u_tkn'] || req.headers.authorization?.split(' ')[1];
+    const decodedToken = await decodeToken(userToken);
+
+    const user = await userSchema.findById(decodedToken.data.id);
+    if (!user) return res.status(404).send({ message: message.user.notfound });
+
+    const charId = req.params.id;
+    const owns = user.character.some(c => String(c) === charId);
+    if (!owns) return res.status(403).send({ error: 'No autorizado' });
+
+    const { name, currentClass, resonance } = req.body || {};
+    const update = {};
+    if (name !== undefined) update.name = name;
+    if (currentClass !== undefined) update.currentClass = currentClass;
+    if (resonance !== undefined) update.resonance = resonance;
+
+    const updated = await characterSchema.findByIdAndUpdate(charId, update, { new: true });
+    if (!updated) return res.status(404).send({ error: 'Character not found' });
+
+    return res.status(200).send(updated);
+  } catch (error) {
+    return res.status(500).send({ error: message.user.error });
+  }
+});
+
 router.get('/:name', async (req, res) => {
   try {
     const { name } = req.params;

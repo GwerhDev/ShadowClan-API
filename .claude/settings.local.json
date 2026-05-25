@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:www.mistermenplays.com)",
+      "WebFetch(domain:diablo.fandom.com)",
+      "WebFetch(domain:gamerant.com)",
+      "WebFetch(domain:news.blizzard.com)",
+      "Bash(Get-ChildItem -Path \"e:\\\\Lalo\\\\Desarrollo\\\\Gwerh Dev\\\\ShadowClan\\\\ShadowClan-Client\\\\src\" -Recurse -Include \"*.vue\", \"*.ts\")",
+      "Bash(Select-Object -First 100)",
+      "Bash(xargs grep -l \"invitation\\\\|request\\\\|ClanRequest\\\\|ClanInvitation\")",
+      "Bash(xargs grep -l \"interface.*Invitation\\\\|interface.*Request\\\\|type.*Invitation\\\\|type.*Request\")",
+      "Bash(Get-ChildItem -Path \"e:\\\\Lalo\\\\Desarrollo\\\\Gwerh Dev\\\\ShadowClan\\\\ShadowClan-Web\" -Force)",
+      "Bash(Select-Object Name, FullName)"
+    ]
+  }
+}
