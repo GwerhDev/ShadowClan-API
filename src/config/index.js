@@ -6,6 +6,7 @@ module.exports = {
   apiUrl: process.env.NODE_ENV === "production" ? process.env.API_URL_PROD : process.env.API_URL,
   clientUrl: process.env.NODE_ENV === "production" ? process.env.CLIENT_URL_PROD : process.env.CLIENT_URL,
   appClientUrl: process.env.NODE_ENV === "production" ? process.env.APP_CLIENT_URL_PROD : process.env.APP_CLIENT_URL,
+  dashboardUrl: process.env.NODE_ENV === "production" ? process.env.DASHBOARD_URL_PROD : process.env.DASHBOARD_URL,
 
   adminEmailList: process.env.ADMIN_EMAIL_LIST,
 

@@ -2,7 +2,7 @@ const router = require("express").Router();
 const passport = require("passport");
 const userSchema = require("../models/User");
 const { loginBnet } = require("../integrations/bnet");
-const { clientUrl, appClientUrl } = require("../config");
+const { clientUrl, appClientUrl, dashboardUrl } = require("../config");
 const { createToken } = require("../integrations/jwt");
 const { status } = require("../misc/consts-user-model");
 require("dotenv").config();
@@ -75,7 +75,8 @@ router.get('/success', async (req, res) => {
         });
       }
 
-      return res.status(200).redirect(appClientUrl);
+      const isAdmin = userExist.role === 'admin' || userExist.role === 'super_admin';
+      return res.status(200).redirect(isAdmin ? dashboardUrl : appClientUrl);
     } else {
       return res.status(400).redirect(`${clientUrl}/login/user-not-found`);
     }
