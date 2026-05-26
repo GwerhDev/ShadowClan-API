@@ -75,8 +75,7 @@ router.get('/success', async (req, res) => {
         });
       }
 
-      const isAdmin = userExist.role === 'admin' || userExist.role === 'super_admin';
-      return res.status(200).redirect(isAdmin ? dashboardUrl : appClientUrl);
+      return res.status(200).redirect(appClientUrl);
     } else {
       return res.status(400).redirect(`${clientUrl}/login/user-not-found`);
     }
