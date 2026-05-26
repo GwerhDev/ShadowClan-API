@@ -77,11 +77,11 @@ router.get('/success', async (req, res) => {
 
       return res.status(200).redirect(appClientUrl);
     } else {
-      return res.status(400).redirect(`${clientUrl}/auth/not_found`);
+      return res.status(400).redirect(`${clientUrl}/login/user-not-found`);
     }
   } catch (error) {
     console.error(error);
-    return res.status(500).redirect(`${clientUrl}/auth/error`);
+    return res.status(500).redirect(`${clientUrl}/login/login-error`);
   }
 });
 
