@@ -10,6 +10,7 @@ router.get('/', async (req, res) => {
     const query = q ? { name: { $regex: q, $options: 'i' } } : {};
 
     const characters = await characterSchema.find(query)
+      .populate('clan', 'name')
       .limit(parseInt(limit))
       .skip((parseInt(page) - 1) * parseInt(limit));
 

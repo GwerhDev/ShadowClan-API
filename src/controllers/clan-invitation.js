@@ -82,6 +82,17 @@ router.patch('/:id', async (req, res) => {
 
       invitation.status = 'accepted';
     } else {
+      const clan = await Clan.findById(invitation.clan);
+      if (clan) {
+        const charIdStr = String(invitation.character);
+        const inClan = [String(clan.leader), ...clan.officer.map(String), ...clan.member.map(String)].includes(charIdStr);
+        if (inClan) {
+          clan.officer = clan.officer.filter(o => String(o) !== charIdStr);
+          clan.member  = clan.member.filter(m => String(m) !== charIdStr);
+          await clan.save();
+          await Character.findByIdAndUpdate(invitation.character, { clan: null });
+        }
+      }
       invitation.status = 'rejected';
     }
 

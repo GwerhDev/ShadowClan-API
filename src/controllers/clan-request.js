@@ -36,13 +36,15 @@ router.post('/', async (req, res) => {
       const clan = await Clan.findById(clanId);
       if (clan) {
         const privilegedCharIds = [clan.leader, ...(clan.officer ?? [])].filter(Boolean).map(String);
-        const targetUsers = await User.find({ character: { $in: privilegedCharIds } }).select('_id');
+        const targetUsers = await User.find({ character: { $in: privilegedCharIds } }).select('_id character');
         targetUsers.forEach(u => {
+          const targetCharId = (u.character ?? []).find(c => privilegedCharIds.includes(String(c)));
           io.to(`user:${u._id}`).emit('clan-request:new', {
             id: String(request._id),
             character: request.character,
             clan: request.clan,
             createdAt: request.createdAt,
+            targetCharacterId: targetCharId ? String(targetCharId) : null,
           });
         });
       }
