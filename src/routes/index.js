@@ -14,8 +14,10 @@ const loginBnet = require('../controllers/login-bnet');
 const shadowWar = require('../controllers/shadow-war');
 const signupBnet = require('../controllers/signup-bnet');
 const completedTask = require('../controllers/completed-task');
-const clanRequest    = require('../controllers/clan-request');
-const clanInvitation = require('../controllers/clan-invitation');
+const clanRequest                = require('../controllers/clan-request');
+const clanInvitation             = require('../controllers/clan-invitation');
+const characterClaim             = require('../controllers/character-claim');
+const characterCreationRequest   = require('../controllers/character-creation-request');
 const { roles } = require('../misc/consts-user-model');
 const { authorizeRoles } = require('../middlewares');
 
@@ -34,7 +36,9 @@ router.use("/shadow-war", shadowWar);
 router.use("/login-bnet", loginBnet);
 router.use("/signup-bnet", signupBnet);
 router.use("/completed-task", completedTask);
-router.use("/clan-request",    clanRequest);
-router.use("/clan-invitation", clanInvitation);
+router.use("/clan-request",                clanRequest);
+router.use("/clan-invitation",             clanInvitation);
+router.use("/character-claim",             characterClaim);
+router.use("/character-creation-request",  characterCreationRequest);
 
 module.exports = router;

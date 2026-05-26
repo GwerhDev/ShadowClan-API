@@ -45,6 +45,9 @@ async function main() {
 
   io.on('connection', (socket) => {
     socket.join(`user:${socket.userId}`);
+    if (socket.handshake.query.source === 'dashboard') {
+      socket.join(`dashboard:${socket.userId}`);
+    }
   });
 
   httpServer.listen(port, () => console.log(`Server listening on port ${port}`));

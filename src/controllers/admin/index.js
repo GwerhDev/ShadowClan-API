@@ -7,6 +7,9 @@ const shadowWars = require('./shadow-wars');
 const fixedTasks = require('./fixed-tasks');
 const notifications = require('./notifications');
 const clanRequests = require('./clan-requests');
+const characterClaims = require('./character-claims');
+const characterCreationRequests = require('./character-creation-requests');
+const userActivations = require('./user-activations');
 const { roles } = require('../../misc/consts-user-model');
 const { authorizeRoles } = require('../../middlewares');
 
@@ -20,5 +23,8 @@ router.use("/shadow-wars", shadowWars);
 router.use("/fixed-tasks", fixedTasks);
 router.use("/notifications", notifications);
 router.use("/clan-requests", clanRequests);
+router.use("/character-claims", characterClaims);
+router.use("/character-creation-requests", characterCreationRequests);
+router.use("/user-activations", userActivations);
 
 module.exports = router;

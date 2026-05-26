@@ -1,6 +1,8 @@
 const router = require('express').Router();
 const { message } = require('../../messages');
 const userSchema = require('../../models/User');
+const characterSchema = require('../../models/Character');
+const clanSchema = require('../../models/Clan');
 
 router.get('/', async(req, res) => {
   try {
@@ -25,7 +27,22 @@ router.patch('/:id', async(req, res) => {
 
 router.delete('/:id', async(req, res) => {
   try {
-    const { id } = req.params || null;
+    const { id } = req.params;
+    const user = await userSchema.findById(id);
+    if (!user) return res.status(404).json({ message: message.user.notfound });
+
+    if (user.character?.length) {
+      const charIds = user.character;
+      await characterSchema.updateMany(
+        { _id: { $in: charIds } },
+        { status: 'unclaimed', clan: null }
+      );
+      await clanSchema.updateMany(
+        {},
+        { $pull: { member: { $in: charIds }, officer: { $in: charIds } } }
+      );
+    }
+
     await userSchema.findByIdAndDelete(id);
     return res.status(200).send({ message: message.admin.deleteuser.success });
   } catch (error) {

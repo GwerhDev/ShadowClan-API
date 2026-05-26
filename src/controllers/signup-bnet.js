@@ -42,6 +42,29 @@ router.get('/success', async (req, res) => {
 
     await newUser.save();
 
+    try {
+      const { getIO } = require('../socket');
+      const io = getIO();
+      const admins = await userSchema.find({ role: { $in: ['admin', 'super_admin'] } }).select('_id');
+      admins.forEach(admin => {
+        io.to(`dashboard:${admin._id}`).emit('admin:request:new', {
+          type: 'user-activation',
+          id: String(newUser._id),
+          user: { battletag: newUser.battletag },
+          createdAt: newUser.createdAt,
+        });
+        io.to(`dashboard:${admin._id}`).emit('admin:user:registered', {
+          id: String(newUser._id),
+          battletag: newUser.battletag,
+          status: newUser.status,
+          role: newUser.role,
+          createdAt: newUser.createdAt,
+        });
+      });
+    } catch (e) {
+      console.warn('Socket notification failed:', e.message);
+    }
+
     return res.status(200).redirect(`${clientUrl}/signup/register-success`);
   } catch (error) {
     console.error(error);

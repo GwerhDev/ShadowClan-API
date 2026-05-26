@@ -50,6 +50,18 @@ router.delete('/account', async (req, res) => {
 
     await userSchema.findByIdAndDelete(user._id);
     res.clearCookie('u_tkn');
+
+    try {
+      const { getIO } = require('../socket');
+      const io = getIO();
+      const admins = await userSchema.find({ role: { $in: ['admin', 'super_admin'] } }).select('_id');
+      admins.forEach(admin => {
+        io.to(`dashboard:${admin._id}`).emit('admin:user:deleted', { id: String(user._id) });
+      });
+    } catch (e) {
+      console.warn('Socket notification failed:', e.message);
+    }
+
     return res.status(200).json({ message: 'Cuenta eliminada' });
   } catch (error) {
     return res.status(500).send({ message: message.user.unauthorized });

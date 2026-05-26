@@ -39,13 +39,14 @@ router.post('/', async (req, res) => {
         const targetUsers = await User.find({ character: { $in: privilegedCharIds } }).select('_id character');
         targetUsers.forEach(u => {
           const targetCharId = (u.character ?? []).find(c => privilegedCharIds.includes(String(c)));
-          io.to(`user:${u._id}`).emit('clan-request:new', {
+          const payload = {
             id: String(request._id),
             character: request.character,
             clan: request.clan,
             createdAt: request.createdAt,
             targetCharacterId: targetCharId ? String(targetCharId) : null,
-          });
+          };
+          io.to(`user:${u._id}`).emit('clan-request:new', payload);
         });
       }
     } catch (e) {
@@ -124,6 +125,20 @@ router.patch('/:id', async (req, res) => {
       .populate('user', 'battletag')
       .populate('character', 'name currentClass resonance')
       .populate('clan', 'name');
+
+    try {
+      const { getIO } = require('../socket');
+      const io = getIO();
+      io.to(`user:${String(request.user)}`).emit('clan-request:reviewed', {
+        id: String(request._id),
+        action,
+        clan: populated.clan,
+        character: populated.character,
+        createdAt: request.createdAt,
+      });
+    } catch (e) {
+      console.warn('Socket notification failed:', e.message);
+    }
 
     return res.status(200).json({
       message: action === 'accept' ? 'Solicitud aceptada' : 'Solicitud rechazada',

@@ -95,6 +95,19 @@ router.delete('/:clanId/members/:characterId', async (req, res) => {
     await clan.save();
     await Character.findByIdAndUpdate(characterId, { $unset: { clan: '' } });
 
+    try {
+      const { getIO } = require('../../socket');
+      const owner = await User.findOne({ character: characterId }).select('_id');
+      if (owner) {
+        getIO().to(`user:${owner._id}`).emit('clan:member-removed', {
+          clanName: clan.name,
+          characterId,
+        });
+      }
+    } catch (e) {
+      console.warn('Socket notification failed:', e.message);
+    }
+
     return res.status(200).json(await populate(Clan.findById(clanId)));
   } catch (error) {
     return res.status(500).json({ error: message.user.error });
