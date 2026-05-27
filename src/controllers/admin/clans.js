@@ -2,16 +2,30 @@ const router = require('express').Router();
 const Clan = require('../../models/Clan');
 const { message } = require('../../messages');
 
+const STATUS_ORDER = { claimed: 0, pending: 1, unclaimed: 2 };
+
+async function getClansSorted(query = {}, { page = 1, limit = 50 } = {}) {
+  const clans = await Clan.find(query)
+    .limit(parseInt(limit))
+    .skip((parseInt(page) - 1) * parseInt(limit))
+    .populate('leader')
+    .lean();
+
+  return clans
+    .sort((a, b) => (STATUS_ORDER[a.status] ?? 3) - (STATUS_ORDER[b.status] ?? 3))
+    .map(clan => ({
+      ...clan,
+      totalMembers: (clan.leader ? 1 : 0) + (clan.officer?.length ?? 0) + (clan.member?.length ?? 0),
+    }));
+}
+
 // GET all clans
 router.get('/', async (req, res) => {
   try {
-    const { q, page = 1, limit = 10 } = req.query;
+    const { q, page = 1, limit = 50 } = req.query;
     const query = q ? { name: { $regex: q, $options: 'i' } } : {};
 
-    const clans = await Clan.find(query)
-      .limit(parseInt(limit))
-      .skip((parseInt(page) - 1) * parseInt(limit))
-      .populate('leader');
+    const clans = await getClansSorted(query, { page, limit });
 
     return res.status(200).json(clans);
   } catch (error) {
@@ -43,7 +57,7 @@ router.post('/', async (req, res) => {
 
     await newClan.save();
 
-    const clans = await Clan.find();
+    const clans = await getClansSorted();
 
     return res.status(201).json(clans);
   } catch (error) {
@@ -61,7 +75,7 @@ router.patch('/', async (req, res) => {
       return res.status(404).json({ message: 'Clan not found' });
     }
 
-    const clans = await Clan.find();
+    const clans = await getClansSorted();
 
     return res.status(201).json(clans);
   } catch (error) {
@@ -78,7 +92,8 @@ router.delete('/:id', async (req, res) => {
     if (!deletedClan) {
       return res.status(404).json({ message: 'Clan not found' });
     }
-    const clans = await Clan.find();
+
+    const clans = await getClansSorted();
 
     return res.status(201).json(clans);
   } catch (error) {
