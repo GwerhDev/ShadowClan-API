@@ -21,6 +21,7 @@ const shadowWarSchema = new mongoose.Schema({
     proud: [matchSchema],
   },
   confirmed: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Character' }],
-});
+  completed: { type: Boolean, default: false },
+}, { timestamps: true });
 
 module.exports = mongoose.model('ShadowWar', shadowWarSchema);

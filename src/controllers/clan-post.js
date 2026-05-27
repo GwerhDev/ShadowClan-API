@@ -77,9 +77,9 @@ router.post('/', async (req, res) => {
     const user = await getUser(req);
     if (!user) return res.status(401).json({ message: message.user.unauthorized });
 
-    const { content, characterId, source } = req.body;
-    const isShadowWar = source === 'shadow_war';
-    if (!content?.trim() && !isShadowWar) return res.status(400).json({ message: 'El contenido no puede estar vacío.' });
+    const { content, characterId, source, referenceId } = req.body;
+    const hasReference = source === 'shadow_war' || source === 'accursed_tower';
+    if (!content?.trim() && !hasReference) return res.status(400).json({ message: 'El contenido no puede estar vacío.' });
 
     const charIds = (user.character ?? []).map(String);
     if (!characterId || !charIds.includes(String(characterId))) {
@@ -89,11 +89,15 @@ router.post('/', async (req, res) => {
     const char = await Character.findById(characterId).select('clan');
     if (!char?.clan) return res.status(400).json({ message: 'El personaje no pertenece a ningún clan.' });
 
+    const VALID_SOURCES = ['general', 'shadow_war', 'accursed_tower'];
+    const resolvedSource = VALID_SOURCES.includes(source) ? source : 'general';
+
     const post = await ClanPost.create({
-      clan:    char.clan,
-      author:  characterId,
-      content: content.trim(),
-      source:  source === 'shadow_war' ? 'shadow_war' : 'general',
+      clan:        char.clan,
+      author:      characterId,
+      content:     (content ?? '').trim(),
+      source:      resolvedSource,
+      referenceId: referenceId || null,
     });
 
     const populated = await ClanPost.findById(post._id)

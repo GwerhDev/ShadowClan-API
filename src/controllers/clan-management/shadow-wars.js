@@ -85,8 +85,31 @@ router.post('/', async (req, res) => {
     if (!await charIsOfficerOrLeaderOfAnyClan(req.user)) {
       return res.status(403).json({ message: message.admin.permissionDenied });
     }
-    const newShadowWar = await new ShadowWar(req.body).save();
-    return res.status(201).json(newShadowWar);
+    const { date, enemyClan } = req.body;
+    if (!date) return res.status(400).json({ message: 'date requerido.' });
+
+    // Append noon-UTC so the date never shifts across timezones (±12 h safe)
+    const parsedDate = new Date(date + 'T12:00:00Z');
+
+    const emptyMatches = () => Array(3).fill(null).map(() => ({
+      group1: { character: [] }, group2: { character: [] }, result: 'pending',
+    }));
+
+    const newShadowWar = await new ShadowWar({
+      date: parsedDate,
+      enemyClan: enemyClan || null,
+      confirmed: [],
+      result: 'pending',
+      battle: {
+        exalted: emptyMatches(),
+        eminent: emptyMatches(),
+        famed:   emptyMatches(),
+        proud:   emptyMatches(),
+      },
+    }).save();
+
+    const populated = await populate(ShadowWar.findById(newShadowWar._id));
+    return res.status(201).json(populated);
   } catch (error) {
     return res.status(500).json({ error: message.user.error });
   }
@@ -111,6 +134,10 @@ router.patch('/:id', async (req, res) => {
       }
     }
 
+    // Fix date timezone: "YYYY-MM-DD" parsed as UTC midnight shifts in local timezones
+    if (req.body.date && typeof req.body.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.body.date)) {
+      req.body.date = new Date(req.body.date + 'T12:00:00Z');
+    }
     if (req.body.enemyClan === '') req.body.enemyClan = null;
     Object.assign(shadowWar, req.body);
     const updated = await shadowWar.save();
@@ -191,7 +218,7 @@ router.patch('/:id/confirm', async (req, res) => {
 
 router.delete('/:id', async (req, res) => {
   try {
-    if (!canDelete(req.user)) {
+    if (!await charIsOfficerOrLeaderOfAnyClan(req.user)) {
       return res.status(403).json({ message: message.admin.permissionDenied });
     }
     const deleted = await ShadowWar.findByIdAndDelete(req.params.id);
