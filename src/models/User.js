@@ -9,6 +9,6 @@ const userSchema = new mongoose.Schema({
   role: { type: String, required: true },
 
   character: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Character', required: false }],
-});
+}, { timestamps: true });
 
 module.exports = mongoose.model('User', userSchema);

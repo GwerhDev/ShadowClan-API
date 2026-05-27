@@ -17,11 +17,79 @@ const CLASS_LABELS = {
   wizard:       'Arcanista',
 };
 
+router.get('/growth', async (req, res) => {
+  try {
+    const range = req.query.range ?? '30';
+    const users = await User.find({ createdAt: { $exists: true } }).select('createdAt').lean();
+    const now   = new Date();
+    const MONTHS = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+
+    let labels = [];
+    let counts = [];
+
+    if (range === 'all') {
+      if (!users.length) return res.json({ labels: [], counts: [] });
+
+      const earliest = users.reduce((min, u) => {
+        const d = new Date(u.createdAt);
+        return d < min ? d : min;
+      }, now);
+
+      let cursor = new Date(earliest.getFullYear(), earliest.getMonth(), 1);
+      const end  = new Date(now.getFullYear(), now.getMonth(), 1);
+
+      while (cursor <= end) {
+        const y = cursor.getFullYear(), m = cursor.getMonth();
+        labels.push(`${MONTHS[m]} ${y}`);
+        counts.push(users.filter(u => {
+          const d = new Date(u.createdAt);
+          return d.getFullYear() === y && d.getMonth() === m;
+        }).length);
+        cursor = new Date(y, m + 1, 1);
+      }
+
+    } else {
+      const days = parseInt(range);
+
+      if (days <= 30) {
+        // By day
+        for (let i = days - 1; i >= 0; i--) {
+          const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+          labels.push(`${d.getDate()}/${d.getMonth() + 1}`);
+          counts.push(users.filter(u => {
+            const c = new Date(u.createdAt);
+            return c.getFullYear() === d.getFullYear() &&
+                   c.getMonth()    === d.getMonth()    &&
+                   c.getDate()     === d.getDate();
+          }).length);
+        }
+      } else {
+        // By week
+        const weeks = Math.ceil(days / 7);
+        for (let i = weeks - 1; i >= 0; i--) {
+          const weekEnd   = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i * 7);
+          const weekStart = new Date(weekEnd.getFullYear(), weekEnd.getMonth(), weekEnd.getDate() - 6);
+          labels.push(`${weekStart.getDate()}/${weekStart.getMonth() + 1}`);
+          counts.push(users.filter(u => {
+            const c = new Date(u.createdAt);
+            return c >= weekStart && c <= weekEnd;
+          }).length);
+        }
+      }
+    }
+
+    return res.json({ labels, counts });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Error al obtener datos de crecimiento' });
+  }
+});
+
 router.get('/', async (req, res) => {
   try {
-    const [users, totalClans, characters, clanRequests] = await Promise.all([
+    const [users, clans, characters, clanRequests] = await Promise.all([
       User.find().lean(),
-      Clan.countDocuments(),
+      Clan.find().populate('leader', 'name').lean(),
       Character.find().lean(),
       ClanRequest.find().lean(),
     ]);
@@ -61,9 +129,33 @@ router.get('/', async (req, res) => {
     const acceptedReqs = clanRequests.filter(r => r.status === 'accepted').length;
     const rejectedReqs = clanRequests.filter(r => r.status === 'rejected').length;
 
+    const claimedClans = clans.filter(c => c.status === 'claimed');
+    const clanList = claimedClans.map(c => ({
+      _id:         String(c._id),
+      name:        c.name,
+      leader:      c.leader?.name ?? null,
+      memberCount: (c.member?.length ?? 0) + (c.officer?.length ?? 0) + (c.leader ? 1 : 0),
+    }));
+
+    // Crecimiento de usuarios — últimos 6 meses
+    const MONTH_NAMES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+    const now = new Date();
+    const growthLabels = [];
+    const growthCounts = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      growthLabels.push(MONTH_NAMES[d.getMonth()]);
+      const count = users.filter(u => {
+        if (!u.createdAt) return false;
+        const c = new Date(u.createdAt);
+        return c.getFullYear() === d.getFullYear() && c.getMonth() === d.getMonth();
+      }).length;
+      growthCounts.push(count);
+    }
+
     return res.json({
       totalUsers:      users.length,
-      totalClans,
+      totalClans:      claimedClans.length,
       totalCharacters: claimedChars.length,
       walkers,
       activeUsers,
@@ -72,6 +164,8 @@ router.get('/', async (req, res) => {
       roleDistribution,
       clanRequests: { pending: pendingReqs, accepted: acceptedReqs, rejected: rejectedReqs },
       charactersByClass,
+      clans: clanList,
+      userGrowth: { labels: growthLabels, counts: growthCounts },
     });
   } catch (error) {
     console.error(error);
