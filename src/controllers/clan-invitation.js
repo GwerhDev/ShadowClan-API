@@ -13,15 +13,19 @@ async function getUser(req) {
   return User.findById(decoded.data.id);
 }
 
-// GET / — pending invitations for the current user's characters
-router.get('/', async (req, res) => {
+// GET /character/:characterId — pending invitations for a specific character (must belong to the token user)
+router.get('/character/:characterId', async (req, res) => {
   try {
     const user = await getUser(req);
     if (!user) return res.status(401).json({ message: message.user.unauthorized });
 
     const charIds = (user.character ?? []).map(String);
+    if (!charIds.includes(String(req.params.characterId))) {
+      return res.status(403).json({ message: 'No tienes acceso a este personaje' });
+    }
+
     const invitations = await ClanInvitation.find({
-      character: { $in: charIds },
+      character: req.params.characterId,
       status: 'pending',
     })
       .populate('clan', 'name')

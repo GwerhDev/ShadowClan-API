@@ -101,13 +101,91 @@ router.patch('/:id', async (req, res) => {
     const shadowWar = await populate(ShadowWar.findById(req.params.id));
     if (!shadowWar) return res.status(404).json({ message: 'Shadow War not found' });
 
+    // Collect currently assigned character IDs before update
+    const oldAssigned = new Set();
+    for (const cat of ['exalted', 'eminent', 'famed', 'proud']) {
+      for (const match of shadowWar.battle[cat] ?? []) {
+        for (const char of [...(match.group1?.character ?? []), ...(match.group2?.character ?? [])]) {
+          if (char?._id) oldAssigned.add(String(char._id));
+        }
+      }
+    }
+
     if (req.body.enemyClan === '') req.body.enemyClan = null;
     Object.assign(shadowWar, req.body);
     const updated = await shadowWar.save();
+    const updatedWithPop = await populate(ShadowWar.findById(updated._id));
 
-    return res.status(200).json(updated);
+    // Detect newly assigned characters and notify their owners
+    const newlyAssigned = [];
+    for (const cat of ['exalted', 'eminent', 'famed', 'proud']) {
+      for (const match of updatedWithPop.battle[cat] ?? []) {
+        for (const char of [...(match.group1?.character ?? []), ...(match.group2?.character ?? [])]) {
+          if (char?._id && !oldAssigned.has(String(char._id))) {
+            newlyAssigned.push(char);
+          }
+        }
+      }
+    }
+
+    if (newlyAssigned.length > 0) {
+      try {
+        const { getIO } = require('../../socket');
+        const User = require('../../models/User');
+        const io = getIO();
+        for (const char of newlyAssigned) {
+          const owner = await User.findOne({ character: char._id });
+          if (owner) {
+            io.to(`user:${owner._id}`).emit('shadowwar:assigned', {
+              id: `shadowwar:${updated._id}:${char._id}`,
+              shadowWarId: String(updated._id),
+              characterId: String(char._id),
+              characterName: char.name,
+              date: updated.date,
+            });
+          }
+        }
+      } catch (socketErr) {
+        console.error('shadowwar:assigned socket error:', socketErr);
+      }
+    }
+
+    return res.status(200).json(updatedWithPop);
   } catch (error) {
     return res.status(500).json({ error: message.user.error, details: error.message });
+  }
+});
+
+// Confirm participation in a shadow war
+router.patch('/:id/confirm', async (req, res) => {
+  try {
+    const charIds = (req.user?.character ?? []).map(String);
+    const shadowWar = await ShadowWar.findById(req.params.id);
+    if (!shadowWar) return res.status(404).json({ message: 'Shadow War not found' });
+
+    // Find which of the user's characters are assigned in any battle slot
+    const assignedUserChars = new Set();
+    for (const cat of ['exalted', 'eminent', 'famed', 'proud']) {
+      for (const match of shadowWar.battle[cat] ?? []) {
+        for (const charId of [...(match.group1?.character ?? []), ...(match.group2?.character ?? [])]) {
+          if (charIds.includes(String(charId))) assignedUserChars.add(String(charId));
+        }
+      }
+    }
+
+    if (assignedUserChars.size === 0) {
+      return res.status(400).json({ message: 'No tienes personajes asignados en esta guerra sombría.' });
+    }
+
+    const alreadyConfirmed = new Set(shadowWar.confirmed.map(String));
+    for (const id of assignedUserChars) {
+      if (!alreadyConfirmed.has(id)) shadowWar.confirmed.push(id);
+    }
+
+    await shadowWar.save();
+    return res.status(200).json({ message: 'Participación confirmada.' });
+  } catch (error) {
+    return res.status(500).json({ error: message.user.error });
   }
 });
 
