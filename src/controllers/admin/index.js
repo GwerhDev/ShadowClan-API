@@ -1,4 +1,5 @@
 const router = require('express').Router();
+const overview = require('./overview');
 const clans = require('./clans');
 const users = require('./users');
 const warbands = require('./warbands');
@@ -15,6 +16,7 @@ const { authorizeRoles } = require('../../middlewares');
 
 const superAdminOnly = authorizeRoles([roles.superAdmin]);
 
+router.use("/overview", overview);
 router.use("/users", superAdminOnly, users);
 router.use("/clans", superAdminOnly, clans);
 router.use("/warbands", warbands);
