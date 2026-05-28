@@ -133,19 +133,15 @@ router.patch('/:id', async (req, res) => {
   }
 });
 
-// DELETE /clan-management/tower-wars/:id  — deactivate instance
+// DELETE /clan-management/tower-wars/:id  — permanently delete instance
 router.delete('/:id', async (req, res) => {
   try {
     if (!await charIsOfficerOrLeaderOfAnyClan(req.user)) {
       return res.status(403).json({ message: message.admin.permissionDenied });
     }
-    const updated = await AccursedTower.findByIdAndUpdate(
-      req.params.id,
-      { active: false },
-      { new: true }
-    );
-    if (!updated) return res.status(404).json({ message: 'Torre no encontrada.' });
-    return res.status(200).json({ message: 'Instancia de torre desactivada.' });
+    const deleted = await AccursedTower.findByIdAndDelete(req.params.id);
+    if (!deleted) return res.status(404).json({ message: 'Torre no encontrada.' });
+    return res.status(200).json({ message: 'Instancia de torre eliminada.' });
   } catch (err) {
     return res.status(500).json({ error: message.user.error });
   }
