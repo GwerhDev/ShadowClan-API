@@ -1,8 +1,10 @@
-const router     = require('express').Router();
-const ClanPost   = require('../models/ClanPost');
-const Character  = require('../models/Character');
-const Clan       = require('../models/Clan');
-const User       = require('../models/User');
+const router       = require('express').Router();
+const ClanPost     = require('../models/ClanPost');
+const Character    = require('../models/Character');
+const Clan         = require('../models/Clan');
+const User         = require('../models/User');
+const ShadowWar    = require('../models/ShadowWar');
+const AccursedTower = require('../models/AccursedTower');
 const { decodeToken } = require('../integrations/jwt');
 const { message } = require('../messages');
 
@@ -22,21 +24,12 @@ router.get('/', async (req, res) => {
     const charIds = (user.character ?? []).map(String);
     if (!charIds.length) return res.status(200).json([]);
 
-    // Find the clan of the active character (sent as query param, falls back to any)
+    // Feed is scoped to the active character — never fall back to other characters
     const characterId = req.query.characterId;
-    let clanId = null;
+    if (!characterId || !charIds.includes(characterId)) return res.status(200).json([]);
 
-    if (characterId && charIds.includes(characterId)) {
-      const char = await Character.findById(characterId).select('clan');
-      clanId = char?.clan ?? null;
-    }
-
-    if (!clanId) {
-      // fallback: find clan from any character
-      const chars = await Character.find({ _id: { $in: charIds } }).select('clan');
-      clanId = chars.find(c => c.clan)?.clan ?? null;
-    }
-
+    const char = await Character.findById(characterId).select('clan');
+    const clanId = char?.clan ?? null;
     if (!clanId) return res.status(200).json([]);
 
     const page  = Math.max(1, parseInt(req.query.page) || 1);
@@ -56,12 +49,36 @@ router.get('/', async (req, res) => {
     const leaderStr  = String(clan?.leader ?? '');
     const officerSet = new Set((clan?.officer ?? []).map(String));
 
-    const result = posts.map(post => {
+    const baseResult = posts.map(post => {
       const authorId = String(post.author?._id ?? '');
       const authorRole =
         authorId === leaderStr   ? 'leader'  :
         officerSet.has(authorId) ? 'officer' : 'member';
       return { ...post, authorRole };
+    });
+
+    // Enrich reference posts with instanceConfirmed and instanceDate
+    const swIds     = baseResult.filter(p => p.source === 'shadow_war'    && p.referenceId).map(p => p.referenceId);
+    const towerIds  = baseResult.filter(p => p.source === 'accursed_tower' && p.referenceId).map(p => p.referenceId);
+
+    const [shadowWars, towers] = await Promise.all([
+      swIds.length    ? ShadowWar.find({ _id: { $in: swIds } }).select('confirmed date enemyClan').populate('enemyClan', 'name').lean() : [],
+      towerIds.length ? AccursedTower.find({ _id: { $in: towerIds } }).select('confirmed date towerNumber enemyClan').populate('enemyClan', 'name').lean() : [],
+    ]);
+
+    const swMap    = Object.fromEntries(shadowWars.map(sw => [String(sw._id), sw]));
+    const towerMap = Object.fromEntries(towers.map(t  => [String(t._id),  t]));
+
+    const result = baseResult.map(post => {
+      if (post.source === 'shadow_war' && post.referenceId) {
+        const sw = swMap[String(post.referenceId)];
+        return { ...post, instanceConfirmed: (sw?.confirmed ?? []).map(String), instanceDate: sw?.date, instanceEnemyClan: sw?.enemyClan?.name ?? null };
+      }
+      if (post.source === 'accursed_tower' && post.referenceId) {
+        const t = towerMap[String(post.referenceId)];
+        return { ...post, instanceConfirmed: (t?.confirmed ?? []).map(String), instanceDate: t?.date, instanceEnemyClan: t?.enemyClan?.name ?? null, instanceTowerNumber: t?.towerNumber ?? null };
+      }
+      return post;
     });
 
     return res.status(200).json(result);

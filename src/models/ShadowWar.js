@@ -11,6 +11,7 @@ const matchSchema = new mongoose.Schema({
 });
 
 const shadowWarSchema = new mongoose.Schema({
+  clan: { type: mongoose.Schema.Types.ObjectId, ref: 'Clan', default: null },
   date: { type: Date, required: true },
   result: { type: String, required: false },
   enemyClan: { type: mongoose.Schema.Types.ObjectId, ref: 'Clan', required: false },

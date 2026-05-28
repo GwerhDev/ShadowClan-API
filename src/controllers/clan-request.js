@@ -60,21 +60,29 @@ router.post('/', async (req, res) => {
   }
 });
 
-// Pending requests for clans where current user is leader or officer
+// Pending requests for the active character's clan (leader or officer only)
 router.get('/manage', async (req, res) => {
   try {
     const user = await getUser(req);
     if (!user) return res.status(401).json({ message: message.user.unauthorized });
 
     const charIds = (user.character ?? []).map(String);
-    const clans = await Clan.find({
-      $or: [{ leader: { $in: charIds } }, { officer: { $in: charIds } }],
+    const { characterId } = req.query;
+
+    // Scope to the active character — not any character of the user
+    const activeCharId = characterId && charIds.includes(String(characterId))
+      ? String(characterId)
+      : null;
+
+    if (!activeCharId) return res.status(200).json([]);
+
+    const clan = await Clan.findOne({
+      $or: [{ leader: activeCharId }, { officer: activeCharId }],
     }).select('_id');
 
-    if (!clans.length) return res.status(200).json([]);
+    if (!clan) return res.status(200).json([]);
 
-    const clanIds = clans.map(c => c._id);
-    const requests = await ClanRequest.find({ clan: { $in: clanIds }, status: 'pending' })
+    const requests = await ClanRequest.find({ clan: clan._id, status: 'pending' })
       .populate('user', 'battletag')
       .populate('character', 'name currentClass resonance')
       .populate('clan', 'name')

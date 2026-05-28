@@ -1,5 +1,6 @@
-const router = require('express').Router();
-const Clan = require('../../models/Clan');
+const router    = require('express').Router();
+const Clan      = require('../../models/Clan');
+const Character = require('../../models/Character');
 const { message } = require('../../messages');
 
 const STATUS_ORDER = { claimed: 0, pending: 1, unclaimed: 2 };
@@ -68,15 +69,34 @@ router.post('/', async (req, res) => {
 // PATCH a clan by ID
 router.patch('/', async (req, res) => {
   try {
-    const { _id } = req.body;
+    const { _id, leader, officer, member } = req.body;
+
+    const prevClan = await Clan.findById(_id).select('leader officer member');
     const updatedClan = await Clan.findByIdAndUpdate(_id, req.body, { new: true });
 
     if (!updatedClan) {
       return res.status(404).json({ message: 'Clan not found' });
     }
 
-    const clans = await getClansSorted();
+    // Sync Character.clan whenever leader/officer/member change
+    const repairs = [];
 
+    const newLeader = leader ? String(leader) : null;
+    const oldLeader = prevClan?.leader ? String(prevClan.leader) : null;
+    if (newLeader && newLeader !== oldLeader) {
+      repairs.push(Character.findByIdAndUpdate(newLeader, { clan: _id }));
+    }
+
+    const newOfficers = (officer ?? []).map(String);
+    const newMembers  = (member  ?? []).map(String);
+    const allNew      = [...new Set([...newOfficers, ...newMembers])];
+    for (const charId of allNew) {
+      repairs.push(Character.findByIdAndUpdate(charId, { clan: _id }));
+    }
+
+    if (repairs.length) await Promise.allSettled(repairs);
+
+    const clans = await getClansSorted();
     return res.status(201).json(clans);
   } catch (error) {
     return res.status(500).json({ error: message.user.error });
