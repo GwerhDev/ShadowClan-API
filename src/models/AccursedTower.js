@@ -10,6 +10,7 @@ const accursedTowerSchema = new Schema({
     group2: [{ type: ObjectId, ref: 'Character' }],
     group3: [{ type: ObjectId, ref: 'Character' }],
   },
+  result:    { type: String, enum: ['victory', 'defeat', 'draw', 'pending'], default: 'pending' },
   active:    { type: Boolean, default: true },
   completed: { type: Boolean, default: false },
 }, { timestamps: true });
