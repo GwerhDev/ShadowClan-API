@@ -138,7 +138,7 @@ router.patch('/:id', async (req, res) => {
     if (!post) return res.status(404).json({ message: 'Publicación no encontrada.' });
 
     const { content } = req.body;
-    if (!content?.trim()) return res.status(400).json({ message: 'El contenido no puede estar vacío.' });
+    if (content === undefined) return res.status(400).json({ message: 'Se requiere el campo content.' });
 
     const charIds = (user.character ?? []).map(String);
     const clan    = post.clan;
@@ -152,7 +152,7 @@ router.patch('/:id', async (req, res) => {
       return res.status(403).json({ message: 'No tienes permisos para editar esta publicación.' });
     }
 
-    post.content = content.trim();
+    post.content = (content ?? '').trim();
     await post.save();
 
     const updated = await ClanPost.findById(post._id)

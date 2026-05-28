@@ -136,7 +136,7 @@ router.post('/', async (req, res) => {
           String(clanDoc.leader) === id || (clanDoc.officer ?? []).some(o => String(o) === id)
         );
         if (authorId) {
-          await ClanPost.create({ clan: clanId, author: authorId, content: '', source: 'shadow_war', referenceId: newSW._id });
+          await ClanPost.create({ clan: clanId, author: authorId, content: '', source: 'shadow_war', referenceId: newSW._id, auto: true });
         }
       }
     } catch (e) { console.error('call-to-arms (shadow_war):', e); }
