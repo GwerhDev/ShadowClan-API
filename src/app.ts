@@ -7,7 +7,7 @@ import mongoose from 'mongoose';
 import cookieParser from 'cookie-parser';
 import { privateSecret, allowedOrigins } from './config';
 import routes from './routes';
-import User from './models/User';
+
 import type { IUser } from './types';
 
 declare global {
@@ -55,17 +55,15 @@ app.use(session({
 app.use(passport.initialize());
 app.use(passport.session());
 
+// The passport strategy passes a BnetProfile (not a DB document), so we
+// store the whole profile object in the session and pass it back as-is.
+// The /login-bnet/success handler does the DB lookup via battlenetId.
 passport.serializeUser((user, done) => {
-  done(null, (user as IUser).id);
+  done(null, user);
 });
 
-passport.deserializeUser(async (id: string, done) => {
-  try {
-    const user = await User.findById(id);
-    done(null, user);
-  } catch (err) {
-    done(err, null);
-  }
+passport.deserializeUser((data: unknown, done) => {
+  done(null, data as IUser);
 });
 
 app.use('/', routes);
