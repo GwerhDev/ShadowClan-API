@@ -37,7 +37,8 @@ async function main(): Promise<void> {
   }
 
   const io = initSocket(httpServer, {
-    cors: { origin: origins.length ? origins : false, credentials: true },
+    origin: origins.length ? origins : false,
+    credentials: true,
   });
 
   io.use(async (socket, next) => {
