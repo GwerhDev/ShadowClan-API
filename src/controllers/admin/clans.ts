@@ -74,9 +74,9 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 router.get('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
     const clan = await Clan.findById(req.params.id)
-      .populate('leader',  'name currentClass resonance status')
-      .populate('officer', 'name currentClass resonance status')
-      .populate('member',  'name currentClass resonance status');
+      .populate('leader',  'name currentClass resonance status armor armorPenetration power resistance')
+      .populate('officer', 'name currentClass resonance status armor armorPenetration power resistance')
+      .populate('member',  'name currentClass resonance status armor armorPenetration power resistance');
     if (!clan) { res.status(404).json({ message: 'Clan not found' }); return; }
     res.status(200).json(clan);
   } catch { res.status(500).json({ error: message.user.error }); }
@@ -176,7 +176,7 @@ router.get('/:id/members', async (req: Request, res: Response): Promise<void> =>
     const filter: Record<string, unknown> = { _id: { $in: allIds } };
     if (q?.trim()) filter.name = { $regex: escapeRegex(q.trim()), $options: 'i' };
 
-    const chars = await Character.find(filter).select('name currentClass resonance memberStatus status').lean();
+    const chars = await Character.find(filter).select('name currentClass resonance memberStatus status armor armorPenetration power resistance').lean();
 
     chars.sort((a, b) => {
       const ra = roleOrder[String(a._id)] ?? 2;

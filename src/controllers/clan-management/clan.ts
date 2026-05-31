@@ -111,16 +111,21 @@ router.post('/:clanId/characters', async (req: Request, res: Response): Promise<
 router.patch('/:clanId/members/:characterId', async (req: Request, res: Response): Promise<void> => {
   try {
     const clanId = String(req.params.clanId); const characterId = String(req.params.characterId);
-    const { currentClass, resonance, memberStatus } = req.body as { currentClass?: string; resonance?: number; memberStatus?: string };
+    const { currentClass, resonance, memberStatus, armor, armorPenetration, power, resistance } =
+      req.body as { currentClass?: string; resonance?: number; memberStatus?: string; armor?: number; armorPenetration?: number; power?: number; resistance?: number };
     const clan = await Clan.findById(clanId);
     if (!clan) { res.status(404).json({ message: 'Clan not found' }); return; }
     if (!charIsOfficerOrLeader(clan, req.user!)) { res.status(403).json({ message: 'Se requiere ser líder u oficial del clan' }); return; }
     const inClan = [String(clan.leader), ...clan.officer.map(String), ...clan.member.map(String)].includes(characterId);
     if (!inClan) { res.status(400).json({ message: 'El personaje no pertenece a este clan' }); return; }
     const update: Record<string, unknown> = {};
-    if (currentClass !== undefined) update.currentClass = currentClass || null;
-    if (resonance    !== undefined) update.resonance    = Number(resonance);
-    if (memberStatus !== undefined) update.memberStatus = memberStatus;
+    if (currentClass     !== undefined) update.currentClass     = currentClass || null;
+    if (resonance        !== undefined) update.resonance        = Number(resonance);
+    if (memberStatus     !== undefined) update.memberStatus     = memberStatus;
+    if (armor            !== undefined) update.armor            = Number(armor);
+    if (armorPenetration !== undefined) update.armorPenetration = Number(armorPenetration);
+    if (power            !== undefined) update.power            = Number(power);
+    if (resistance       !== undefined) update.resistance       = Number(resistance);
     await Character.findByIdAndUpdate(characterId, update);
     res.status(200).json(await populateClan(Clan.findById(clanId)));
   } catch { res.status(500).json({ error: message.user.error }); }
@@ -224,7 +229,7 @@ router.get('/:clanId/members', async (req: Request, res: Response): Promise<void
     const filter: Record<string, unknown> = { _id: { $in: allIds } };
     if (q?.trim()) filter.name = { $regex: escapeRegex(q.trim()), $options: 'i' };
 
-    const chars = await Character.find(filter).select('name currentClass resonance memberStatus status').lean();
+    const chars = await Character.find(filter).select('name currentClass resonance memberStatus status armor armorPenetration power resistance').lean();
 
     chars.sort((a, b) => {
       const ra = roleOrder[String(a._id)] ?? 2;
