@@ -17,13 +17,17 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     const type  = (req.query.type as string) || 'all';
 
     let clanFilter: Record<string, unknown> = {};
-    if (!isAdmin(req.user!)) {
-      const { characterId } = req.query as { characterId?: string };
-      if (!characterId) { res.status(200).json({ total: 0, page, limit, pages: 0, data: [] }); return; }
+    const { characterId } = req.query as { characterId?: string };
+    if (characterId) {
+      // Always scope to character's clan when characterId is provided, even for admins
       const char = await Character.findById(characterId).select('clan');
       if (!char?.clan) { res.status(200).json({ total: 0, page, limit, pages: 0, data: [] }); return; }
       clanFilter = { clan: char.clan };
+    } else if (!isAdmin(req.user!)) {
+      // Non-admins without characterId → empty
+      res.status(200).json({ total: 0, page, limit, pages: 0, data: [] }); return;
     }
+    // Admins without characterId → see all (dashboard use case)
 
     if (type === 'shadow_war') {
       const total = await ShadowWar.countDocuments(clanFilter);
