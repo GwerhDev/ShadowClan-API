@@ -10,11 +10,18 @@ const router = Router();
 
 router.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { status = 'pending' } = req.query as { status?: string };
-    const requests = await ClanRequest.find({ status })
+    const { status = 'pending', unclaimedOnly } = req.query as { status?: string; unclaimedOnly?: string };
+    let filter: Record<string, unknown> = { status };
+
+    if (unclaimedOnly === 'true') {
+      const unclaimedClans = await Clan.find({ status: { $ne: 'claimed' } }).select('_id').lean();
+      filter.clan = { $in: unclaimedClans.map(c => c._id) };
+    }
+
+    const requests = await ClanRequest.find(filter)
       .populate('user', 'battletag')
       .populate('character', 'name currentClass')
-      .populate('clan', 'name')
+      .populate('clan', 'name status')
       .sort({ createdAt: -1 });
     res.status(200).json(requests);
   } catch { res.status(500).json({ error: message.user.error }); }
@@ -40,6 +47,16 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
     }
     await request.save();
     await request.populate([{ path: 'user', select: 'battletag' }, { path: 'character', select: 'name' }, { path: 'clan', select: 'name' }]);
+
+    // Notify the requesting user
+    try {
+      const { getIO } = await import('../../socket');
+      const clanName = (request.clan as unknown as { name?: string }).name ?? '';
+      getIO().to(`user:${String(request.user)}`).emit('clan-request:reviewed', {
+        id: String(request._id), action, clan: { name: clanName },
+      });
+    } catch { /* socket failure never breaks response */ }
+
     res.status(200).json({ message: action === 'accept' ? 'Solicitud aceptada' : 'Solicitud rechazada', request });
   } catch (error) {
     console.error(error);

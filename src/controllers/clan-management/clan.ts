@@ -74,6 +74,42 @@ router.post('/:clanId/members', async (req: Request, res: Response): Promise<voi
   } catch { res.status(500).json({ error: message.user.error }); }
 });
 
+// Self-leave clan
+router.post('/:clanId/leave', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const clanId = String(req.params.clanId);
+    const { characterId } = req.body as { characterId?: string };
+    if (!characterId) { res.status(400).json({ message: 'Se requiere characterId' }); return; }
+
+    const charIds = req.user!.character.map(String);
+    if (!charIds.includes(characterId)) { res.status(403).json({ message: 'No autorizado' }); return; }
+
+    const clan = await Clan.findById(clanId);
+    if (!clan) { res.status(404).json({ message: 'Clan not found' }); return; }
+    const isLeader = String(clan.leader) === characterId;
+    const totalMembers = (clan.leader ? 1 : 0) + clan.officer.length + clan.member.length;
+
+    if (isLeader) {
+      // Only member → leave and set clan unclaimed
+      if (totalMembers === 1) {
+        clan.leader = undefined;
+        clan.status = 'unclaimed' as typeof clan.status;
+        await clan.save();
+        await Character.findByIdAndUpdate(characterId, { $unset: { clan: '' } });
+        res.status(200).json({ message: 'Has abandonado el clan. El clan queda sin reclamar.' }); return;
+      }
+      res.status(400).json({ message: 'El líder no puede abandonar el clan mientras haya otros miembros. Transfiere el liderazgo primero.' }); return;
+    }
+
+    clan.officer = clan.officer.filter(o => String(o) !== characterId);
+    clan.member  = clan.member.filter(m => String(m) !== characterId);
+    await clan.save();
+    await Character.findByIdAndUpdate(characterId, { $unset: { clan: '' } });
+
+    res.status(200).json({ message: 'Has abandonado el clan.' });
+  } catch { res.status(500).json({ error: message.user.error }); }
+});
+
 router.delete('/:clanId/members/:characterId', async (req: Request, res: Response): Promise<void> => {
   try {
     const clanId = String(req.params.clanId); const characterId = String(req.params.characterId);
