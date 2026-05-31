@@ -45,6 +45,8 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
     } else {
       request.status = 'rejected';
     }
+    // Capture user ID before populate changes the reference
+    const userId = String(request.user);
     await request.save();
     await request.populate([{ path: 'user', select: 'battletag' }, { path: 'character', select: 'name' }, { path: 'clan', select: 'name' }]);
 
@@ -52,10 +54,10 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
     try {
       const { getIO } = await import('../../socket');
       const clanName = (request.clan as unknown as { name?: string }).name ?? '';
-      getIO().to(`user:${String(request.user)}`).emit('clan-request:reviewed', {
+      getIO().to(`user:${userId}`).emit('clan-request:reviewed', {
         id: String(request._id), action, clan: { name: clanName },
       });
-    } catch { /* socket failure never breaks response */ }
+    } catch (e) { console.warn('Socket notify failed:', (e as Error).message); }
 
     res.status(200).json({ message: action === 'accept' ? 'Solicitud aceptada' : 'Solicitud rechazada', request });
   } catch (error) {
