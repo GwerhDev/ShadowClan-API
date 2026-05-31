@@ -22,6 +22,8 @@ import clanRequest              from '../controllers/clan-request';
 import clanInvitation           from '../controllers/clan-invitation';
 import characterClaim           from '../controllers/character-claim';
 import characterCreationRequest from '../controllers/character-creation-request';
+import clanCreationRequest      from '../controllers/clan-creation-request';
+import clanClaimRequest         from '../controllers/clan-claim-request';
 
 const router = Router();
 
@@ -46,5 +48,7 @@ router.use('/clan-request',                clanRequest);
 router.use('/clan-invitation',             clanInvitation);
 router.use('/character-claim',             characterClaim);
 router.use('/character-creation-request',  characterCreationRequest);
+router.use('/clan-creation-request',       clanCreationRequest);
+router.use('/clan-claim-request',          clanClaimRequest);
 
 export default router;

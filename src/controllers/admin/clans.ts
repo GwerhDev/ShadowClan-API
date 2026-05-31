@@ -279,8 +279,34 @@ router.post('/:id/sync', upload.single('file'), async (req: Request, res: Respon
 
 router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
-    const deleted = await Clan.findByIdAndDelete(req.params.id);
-    if (!deleted) { res.status(404).json({ message: 'Clan not found' }); return; }
+    const clan = await Clan.findById(req.params.id).select('leader officer member');
+    if (!clan) { res.status(404).json({ message: 'Clan not found' }); return; }
+
+    // Collect all member IDs to notify
+    const allCharIds = [
+      ...(clan.leader ? [String(clan.leader)] : []),
+      ...(clan.officer ?? []).map(String),
+      ...(clan.member  ?? []).map(String),
+    ];
+
+    await Clan.findByIdAndDelete(req.params.id);
+
+    // Unset clan from all characters
+    if (allCharIds.length) {
+      await Character.updateMany({ _id: { $in: allCharIds } }, { $unset: { clan: '' } });
+    }
+
+    // Notify connected users via socket
+    try {
+      const { getIO } = await import('../../socket');
+      const io = getIO();
+      const users = await (await import('../../models/User')).default
+        .find({ character: { $in: allCharIds } }).select('_id');
+      for (const u of users) {
+        io.to(`user:${String(u._id)}`).emit('clan:deleted', { clanId: req.params.id });
+      }
+    } catch { /* socket failure never breaks response */ }
+
     res.status(201).json(await getClansSorted());
   } catch { res.status(500).json({ error: message.user.error }); }
 });

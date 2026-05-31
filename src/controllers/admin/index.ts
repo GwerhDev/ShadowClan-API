@@ -13,6 +13,8 @@ import notifications              from './notifications';
 import clanRequests               from './clan-requests';
 import characterClaims            from './character-claims';
 import characterCreationRequests  from './character-creation-requests';
+import clanCreationRequests       from './clan-creation-requests';
+import clanClaimRequests          from './clan-claim-requests';
 import userActivations            from './user-activations';
 
 const superAdminOnly = authorizeRoles([roles.superAdmin]);
@@ -30,6 +32,8 @@ router.use('/notifications',                   notifications);
 router.use('/clan-requests',                   clanRequests);
 router.use('/character-claims',                characterClaims);
 router.use('/character-creation-requests',     characterCreationRequests);
+router.use('/clan-creation-requests',          clanCreationRequests);
+router.use('/clan-claim-requests',             clanClaimRequests);
 router.use('/user-activations',                userActivations);
 
 export default router;
