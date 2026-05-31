@@ -69,11 +69,15 @@ router.put('/:id', async (req: Request, res: Response): Promise<void> => {
     const charId = req.params.id;
     if (!user.character.some(c => String(c) === charId)) { res.status(403).json({ error: 'No autorizado' }); return; }
 
-    const { name, currentClass, resonance } = (req.body ?? {}) as Record<string, unknown>;
+    const { name, currentClass, resonance, armor, armorPenetration, power, resistance } = (req.body ?? {}) as Record<string, unknown>;
     const update: Record<string, unknown> = {};
-    if (name !== undefined)         update.name         = name;
-    if (currentClass !== undefined) update.currentClass = currentClass;
-    if (resonance !== undefined)    update.resonance    = resonance;
+    if (name             !== undefined) update.name             = name;
+    if (currentClass     !== undefined) update.currentClass     = currentClass;
+    if (resonance        !== undefined) update.resonance        = resonance;
+    if (armor            !== undefined) update.armor            = armor;
+    if (armorPenetration !== undefined) update.armorPenetration = armorPenetration;
+    if (power            !== undefined) update.power            = power;
+    if (resistance       !== undefined) update.resistance       = resistance;
 
     const updated = await Character.findByIdAndUpdate(charId, update, { new: true });
     if (!updated) { res.status(404).json({ error: 'Character not found' }); return; }

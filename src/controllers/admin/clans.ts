@@ -37,7 +37,7 @@ function num(v: unknown): number | undefined {
 const router = Router();
 const STATUS_ORDER: Record<string, number> = { claimed: 0, pending: 1, unclaimed: 2 };
 
-async function getClansSorted(query: Record<string, unknown> = {}, { page = 1, limit = 50 } = {}) {
+async function getClansSorted(query: Record<string, unknown> = {}, { page = 1, limit = 20 } = {}) {
   const clans = await Clan.find(query).limit(limit).skip((page - 1) * limit).populate('leader').lean();
   return clans
     .sort((a, b) => (STATUS_ORDER[a.status ?? ''] ?? 3) - (STATUS_ORDER[b.status ?? ''] ?? 3))
@@ -62,8 +62,12 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     ).catch(() => { /* non-critical, never break the response */ });
 
     const { q, page, limit } = req.query as { q?: string; page?: string; limit?: string };
-    const query = q ? { name: { $regex: q, $options: 'i' } } : {};
-    res.status(200).json(await getClansSorted(query, { page: parseInt(page ?? '1', 10), limit: parseInt(limit ?? '50', 10) }));
+    const pageNum  = Math.max(1, parseInt(page  ?? '1',  10));
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit ?? '20', 10)));
+    const query    = q?.trim() ? { name: { $regex: q.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' } } : {};
+    const total    = await Clan.countDocuments(query);
+    const data     = await getClansSorted(query, { page: pageNum, limit: limitNum });
+    res.status(200).json({ data, total, page: pageNum, limit: limitNum, hasMore: pageNum * limitNum < total });
   } catch { res.status(500).json({ error: message.user.error }); }
 });
 
@@ -149,6 +153,47 @@ router.delete('/:id/leader', async (req: Request, res: Response): Promise<void> 
     clan.leader = undefined;
     await clan.save();
     res.status(200).json(await getClansSorted());
+  } catch { res.status(500).json({ error: message.user.error }); }
+});
+
+// ── Paginated members list ────────────────────────────────────────────────────
+router.get('/:id/members', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const clan = await Clan.findById(req.params.id).select('leader officer member');
+    if (!clan) { res.status(404).json({ message: 'Clan not found' }); return; }
+
+    const { q, page: rawPage, limit: rawLimit } = req.query as Record<string, string>;
+    const page  = Math.max(1, parseInt(rawPage  ?? '1',  10));
+    const limit = Math.min(50, Math.max(1, parseInt(rawLimit ?? '20', 10)));
+
+    const roleOrder: Record<string, number> = {};
+    const roleLabel: Record<string, 'leader' | 'officer' | 'member'> = {};
+    if (clan.leader) { const k = String(clan.leader); roleOrder[k] = 0; roleLabel[k] = 'leader'; }
+    for (const o of clan.officer ?? []) { const k = String(o); roleOrder[k] = 1; roleLabel[k] = 'officer'; }
+    for (const m of clan.member  ?? []) { const k = String(m); roleOrder[k] = 2; roleLabel[k] = 'member'; }
+    const allIds = Object.keys(roleLabel);
+
+    const filter: Record<string, unknown> = { _id: { $in: allIds } };
+    if (q?.trim()) filter.name = { $regex: escapeRegex(q.trim()), $options: 'i' };
+
+    const chars = await Character.find(filter).select('name currentClass resonance memberStatus status').lean();
+
+    chars.sort((a, b) => {
+      const ra = roleOrder[String(a._id)] ?? 2;
+      const rb = roleOrder[String(b._id)] ?? 2;
+      return ra !== rb ? ra - rb : a.name.localeCompare(b.name);
+    });
+
+    const total  = chars.length;
+    const sliced = chars.slice((page - 1) * limit, page * limit);
+
+    res.status(200).json({
+      total,
+      page,
+      limit,
+      hasMore: page * limit < total,
+      members: sliced.map(c => ({ ...c, role: roleLabel[String(c._id)] ?? 'member' })),
+    });
   } catch { res.status(500).json({ error: message.user.error }); }
 });
 

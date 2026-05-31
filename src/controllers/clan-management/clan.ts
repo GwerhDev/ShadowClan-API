@@ -81,6 +81,8 @@ router.delete('/:clanId/members/:characterId', async (req: Request, res: Respons
     if (!clan) { res.status(404).json({ message: 'Clan not found' }); return; }
     if (!charIsOfficerOrLeader(clan, req.user!)) { res.status(403).json({ message: 'Se requiere ser líder u oficial del clan' }); return; }
     if (String(clan.leader) === characterId) { res.status(400).json({ message: 'No se puede eliminar al líder del clan' }); return; }
+    const targetIsOfficer = clan.officer.some(o => String(o) === characterId);
+    if (targetIsOfficer && !charIsLeader(clan, req.user!)) { res.status(403).json({ message: 'Solo el líder puede eliminar oficiales' }); return; }
     clan.member  = clan.member.filter(m => String(m) !== characterId);
     clan.officer = clan.officer.filter(o => String(o) !== characterId);
     await clan.save();
@@ -198,6 +200,48 @@ router.delete('/:clanId/invitations/:invitationId', async (req: Request, res: Re
     const inv = await ClanInvitation.findOneAndDelete({ _id: req.params.invitationId, clan: req.params.clanId, status: 'pending' });
     if (!inv) { res.status(404).json({ message: 'Invitación no encontrada' }); return; }
     res.status(200).json({ message: 'Invitación cancelada' });
+  } catch { res.status(500).json({ error: message.user.error }); }
+});
+
+// ── Paginated members list ────────────────────────────────────────────────────
+router.get('/:clanId/members', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const clan = await Clan.findById(req.params.clanId).select('leader officer member');
+    if (!clan) { res.status(404).json({ message: 'Clan not found' }); return; }
+
+    const { q, page: rawPage, limit: rawLimit } = req.query as Record<string, string>;
+    const page  = Math.max(1, parseInt(rawPage  ?? '1',  10));
+    const limit = Math.min(50, Math.max(1, parseInt(rawLimit ?? '20', 10)));
+
+    // Build ordered role map: leader → officer → member
+    const roleOrder: Record<string, number> = {};
+    const roleLabel: Record<string, 'leader' | 'officer' | 'member'> = {};
+    if (clan.leader) { const k = String(clan.leader); roleOrder[k] = 0; roleLabel[k] = 'leader'; }
+    for (const o of clan.officer ?? []) { const k = String(o); roleOrder[k] = 1; roleLabel[k] = 'officer'; }
+    for (const m of clan.member  ?? []) { const k = String(m); roleOrder[k] = 2; roleLabel[k] = 'member'; }
+    const allIds = Object.keys(roleLabel);
+
+    const filter: Record<string, unknown> = { _id: { $in: allIds } };
+    if (q?.trim()) filter.name = { $regex: escapeRegex(q.trim()), $options: 'i' };
+
+    const chars = await Character.find(filter).select('name currentClass resonance memberStatus status').lean();
+
+    chars.sort((a, b) => {
+      const ra = roleOrder[String(a._id)] ?? 2;
+      const rb = roleOrder[String(b._id)] ?? 2;
+      return ra !== rb ? ra - rb : a.name.localeCompare(b.name);
+    });
+
+    const total  = chars.length;
+    const sliced = chars.slice((page - 1) * limit, page * limit);
+
+    res.status(200).json({
+      total,
+      page,
+      limit,
+      hasMore: page * limit < total,
+      members: sliced.map(c => ({ ...c, role: roleLabel[String(c._id)] ?? 'member' })),
+    });
   } catch { res.status(500).json({ error: message.user.error }); }
 });
 

@@ -104,7 +104,7 @@ router.get('/', async (_req: Request, res: Response): Promise<void> => {
       growthCounts.push(us.filter(u => { if (!u.createdAt) return false; const c = new Date(u.createdAt); return c.getFullYear() === d.getFullYear() && c.getMonth() === d.getMonth(); }).length);
     }
 
-    res.json({ totalUsers: users.length, totalClans: claimedClans.length, totalCharacters: claimedChars.length, walkers, activeUsers, pendingUsers, inactiveUsers, roleDistribution, clanRequests: { pending: pendingReqs, accepted: acceptedReqs, rejected: rejectedReqs }, charactersByClass, clans: clanList, userGrowth: { labels: growthLabels, counts: growthCounts } });
+    res.json({ totalUsers: users.length, totalClans: claimedClans.length, totalCharacters: characters.length, claimedCharacters: claimedChars.length, walkers, activeUsers, pendingUsers, inactiveUsers, roleDistribution, clanRequests: { pending: pendingReqs, accepted: acceptedReqs, rejected: rejectedReqs }, charactersByClass, clans: clanList, userGrowth: { labels: growthLabels, counts: growthCounts } });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Error al obtener estadísticas de overview' });
