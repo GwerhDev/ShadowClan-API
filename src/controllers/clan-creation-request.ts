@@ -31,10 +31,10 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       for (const admin of admins) {
         io.to(`dashboard:${String(admin._id)}`).emit('admin:request:new', {
           type: 'clan-creation', id: String(request._id),
-          clanName: request.clanName, user: user.battletag,
+          clanName: request.clanName, user: { battletag: user.battletag },
         });
       }
-    } catch { /* socket failure never breaks response */ }
+    } catch (e) { console.warn('clan-creation socket failed:', (e as Error).message); }
 
     res.status(201).json(request);
   } catch { res.status(500).json({ error: message.user.error }); }

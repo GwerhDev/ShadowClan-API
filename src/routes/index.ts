@@ -28,7 +28,7 @@ import clanClaimRequest         from '../controllers/clan-claim-request';
 const router = Router();
 
 router.use('/admin',           authorizeRoles([roles.superAdmin, roles.admin]), admin);
-router.use('/clan-management', authorizeRoles([roles.leader, roles.officer, roles.admin, roles.superAdmin]), clanManagement);
+router.use('/clan-management', authorizeRoles([roles.user, roles.leader, roles.officer, roles.admin, roles.superAdmin]), clanManagement);
 
 router.use('/auth',                        auth);
 router.use('/clan',                        clan);
