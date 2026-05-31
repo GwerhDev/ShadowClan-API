@@ -35,9 +35,14 @@ export interface ICharacter extends Document {
   name: string;
   status: CharacterStatus;
   memberStatus: MemberStatus;
-  resonance?: number;
-  currentClass?: string;
-  clan?: Types.ObjectId;
+  resonance?:        number;
+  currentClass?:     string;
+  clan?:             Types.ObjectId;
+  armor?:            number;
+  armorPenetration?: number;
+  power?:            number;
+  resistance?:       number;
+  whatsapp?:         string;
 }
 
 export interface IClan extends Document {
