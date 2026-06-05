@@ -52,6 +52,8 @@ export interface IClan extends Document {
   member: Types.ObjectId[];
   officer: Types.ObjectId[];
   leader?: Types.ObjectId;
+  savedAccursedTowerAlignments?: { last?: any; custom?: { name: string; data: any; savedAt?: Date }[] };
+  savedShadowWarAlignments?: { last?: any; custom?: { name: string; data: any; savedAt?: Date }[] };
 }
 
 export interface IMatchGroup {

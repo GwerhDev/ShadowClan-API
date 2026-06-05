@@ -490,4 +490,45 @@ router.post('/:clanId/sync', upload.single('file'), async (req: Request, res: Re
   }
 });
 
+router.patch('/:clanId/saved-roster', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const clan = await Clan.findById(req.params.clanId);
+    if (!clan) { res.status(404).json({ message: 'Clan not found' }); return; }
+    if (!charIsOfficerOrLeader(clan, req.user!)) { res.status(403).json({ message: 'Se requiere ser líder u oficial del clan' }); return; }
+
+    const { type, slot, data, name, customIndex, action } =
+      req.body as { type?: string; slot?: string; data?: any; name?: string; customIndex?: number | null; action?: string };
+
+    const field = type === 'accursed-tower' ? 'savedAccursedTowerAlignments'
+                : type === 'shadow-war'     ? 'savedShadowWarAlignments'
+                : null;
+    if (!field) { res.status(400).json({ message: 'Tipo inválido.' }); return; }
+
+    const current: { last?: any; custom?: any[] } = (clan as any)[field] ?? { last: null, custom: [] };
+    if (!current.custom) current.custom = [];
+
+    if (slot === 'last') {
+      current.last = data ?? null;
+    } else if (slot === 'custom') {
+      if (action === 'delete') {
+        if (typeof customIndex === 'number' && customIndex >= 0 && customIndex < current.custom.length) {
+          current.custom.splice(customIndex, 1);
+        }
+      } else {
+        if (current.custom.length >= 3 && (customIndex == null)) {
+          res.status(400).json({ message: 'Máximo 3 plantillas. Indica cuál reemplazar.' }); return;
+        }
+        const entry = { name: String(name ?? '').trim(), data, savedAt: new Date() };
+        if (typeof customIndex === 'number' && customIndex >= 0) current.custom[customIndex] = entry;
+        else current.custom.push(entry);
+      }
+    } else {
+      res.status(400).json({ message: 'Slot inválido. Use "last" o "custom".' }); return;
+    }
+
+    await Clan.findByIdAndUpdate(req.params.clanId, { [field]: current });
+    res.status(200).json({ message: 'Alineación guardada' });
+  } catch { res.status(500).json({ error: message.user.error }); }
+});
+
 export default router;
