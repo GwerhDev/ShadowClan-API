@@ -12,6 +12,7 @@ const characterSchema = new Schema<ICharacter>({
   armorPenetration: { type: Number },
   power:            { type: Number },
   resistance:       { type: Number },
+  score:            { type: Number },
   whatsapp:         { type: String },
 });
 

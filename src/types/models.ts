@@ -42,6 +42,7 @@ export interface ICharacter extends Document {
   armorPenetration?: number;
   power?:            number;
   resistance?:       number;
+  score?:            number;
   whatsapp?:         string;
 }
 

@@ -4,6 +4,7 @@ import Clan from '../models/Clan';
 import Character from '../models/Character';
 import { message } from '../messages';
 import { getUser } from '../helpers/getUser';
+import { calcScore } from '../helpers/score';
 
 const router = Router();
 
@@ -78,6 +79,14 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
       if (invitation.proposedClass     != null) charUpdate.currentClass = invitation.proposedClass || null;
       if (invitation.proposedResonance != null) charUpdate.resonance    = invitation.proposedResonance;
       if (Object.keys(charUpdate).length) {
+        const charDoc = await Character.findById(invitation.character);
+        charUpdate.score = calcScore({
+          resonance:        charUpdate.resonance        !== undefined ? Number(charUpdate.resonance)        : (charDoc?.resonance        ?? 0),
+          armor:            charDoc?.armor            ?? 0,
+          armorPenetration: charDoc?.armorPenetration ?? 0,
+          power:            charDoc?.power            ?? 0,
+          resistance:       charDoc?.resistance       ?? 0,
+        });
         await Character.findByIdAndUpdate(invitation.character, charUpdate);
       }
 

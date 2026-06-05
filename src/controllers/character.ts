@@ -4,6 +4,7 @@ import Character from '../models/Character';
 import { decodeToken } from '../integrations/jwt';
 import { message } from '../messages';
 import { characterConsts } from '../misc/consts-models';
+import { calcScore } from '../helpers/score';
 
 const router = Router();
 
@@ -69,6 +70,9 @@ router.put('/:id', async (req: Request, res: Response): Promise<void> => {
     const charId = req.params.id;
     if (!user.character.some(c => String(c) === charId)) { res.status(403).json({ error: 'No autorizado' }); return; }
 
+    const existing = await Character.findById(charId);
+    if (!existing) { res.status(404).json({ error: 'Character not found' }); return; }
+
     const { name, currentClass, resonance, armor, armorPenetration, power, resistance } = (req.body ?? {}) as Record<string, unknown>;
     const update: Record<string, unknown> = {};
     if (name             !== undefined) update.name             = name;
@@ -78,6 +82,14 @@ router.put('/:id', async (req: Request, res: Response): Promise<void> => {
     if (armorPenetration !== undefined) update.armorPenetration = armorPenetration;
     if (power            !== undefined) update.power            = power;
     if (resistance       !== undefined) update.resistance       = resistance;
+
+    update.score = calcScore({
+      resonance:        resonance        !== undefined ? Number(resonance)        : (existing.resonance        ?? 0),
+      armor:            armor            !== undefined ? Number(armor)            : (existing.armor            ?? 0),
+      armorPenetration: armorPenetration !== undefined ? Number(armorPenetration) : (existing.armorPenetration ?? 0),
+      power:            power            !== undefined ? Number(power)            : (existing.power            ?? 0),
+      resistance:       resistance       !== undefined ? Number(resistance)       : (existing.resistance       ?? 0),
+    });
 
     const updated = await Character.findByIdAndUpdate(charId, update, { new: true });
     if (!updated) { res.status(404).json({ error: 'Character not found' }); return; }

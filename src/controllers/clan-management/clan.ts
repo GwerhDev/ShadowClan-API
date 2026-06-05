@@ -8,6 +8,7 @@ import User from '../../models/User';
 import ClanInvitation from '../../models/ClanInvitation';
 import { message } from '../../messages';
 import type { IUser, IClan } from '../../types';
+import { calcScore } from '../../helpers/score';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
@@ -154,6 +155,7 @@ router.patch('/:clanId/members/:characterId', async (req: Request, res: Response
     if (!charIsOfficerOrLeader(clan, req.user!)) { res.status(403).json({ message: 'Se requiere ser líder u oficial del clan' }); return; }
     const inClan = [String(clan.leader), ...clan.officer.map(String), ...clan.member.map(String)].includes(characterId);
     if (!inClan) { res.status(400).json({ message: 'El personaje no pertenece a este clan' }); return; }
+    const existing = await Character.findById(characterId);
     const update: Record<string, unknown> = {};
     if (currentClass     !== undefined) update.currentClass     = currentClass || null;
     if (resonance        !== undefined) update.resonance        = Number(resonance);
@@ -162,6 +164,13 @@ router.patch('/:clanId/members/:characterId', async (req: Request, res: Response
     if (armorPenetration !== undefined) update.armorPenetration = Number(armorPenetration);
     if (power            !== undefined) update.power            = Number(power);
     if (resistance       !== undefined) update.resistance       = Number(resistance);
+    update.score = calcScore({
+      resonance:        resonance        !== undefined ? Number(resonance)        : (existing?.resonance        ?? 0),
+      armor:            armor            !== undefined ? Number(armor)            : (existing?.armor            ?? 0),
+      armorPenetration: armorPenetration !== undefined ? Number(armorPenetration) : (existing?.armorPenetration ?? 0),
+      power:            power            !== undefined ? Number(power)            : (existing?.power            ?? 0),
+      resistance:       resistance       !== undefined ? Number(resistance)       : (existing?.resistance       ?? 0),
+    });
     await Character.findByIdAndUpdate(characterId, update);
     res.status(200).json(await populateClan(Clan.findById(clanId)));
   } catch { res.status(500).json({ error: message.user.error }); }
@@ -265,7 +274,7 @@ router.get('/:clanId/members', async (req: Request, res: Response): Promise<void
     const filter: Record<string, unknown> = { _id: { $in: allIds } };
     if (q?.trim()) filter.name = { $regex: escapeRegex(q.trim()), $options: 'i' };
 
-    const chars = await Character.find(filter).select('name currentClass resonance memberStatus status armor armorPenetration power resistance').lean();
+    const chars = await Character.find(filter).select('name currentClass resonance memberStatus status armor armorPenetration power resistance score').lean();
 
     chars.sort((a, b) => {
       const ra = roleOrder[String(a._id)] ?? 2;

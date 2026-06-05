@@ -4,6 +4,7 @@ import Character from '../../models/Character';
 import Clan from '../../models/Clan';
 import { message } from '../../messages';
 import { characterConsts } from '../../misc/consts-models';
+import { calcScore } from '../../helpers/score';
 
 const router = Router();
 
@@ -34,6 +35,15 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
 router.patch('/', async (req: Request, res: Response): Promise<void> => {
   try {
     const { _id } = req.body as { _id?: string };
+    const existing = await Character.findById(_id);
+    if (!existing) { res.status(404).json({ message: message.member.notfound }); return; }
+    req.body.score = calcScore({
+      resonance:        req.body.resonance        ?? existing.resonance        ?? 0,
+      armor:            req.body.armor            ?? existing.armor            ?? 0,
+      armorPenetration: req.body.armorPenetration ?? existing.armorPenetration ?? 0,
+      power:            req.body.power            ?? existing.power            ?? 0,
+      resistance:       req.body.resistance       ?? existing.resistance       ?? 0,
+    });
     const updated = await Character.findByIdAndUpdate(_id, req.body, { new: true });
     if (!updated) { res.status(404).json({ message: message.member.notfound }); return; }
     res.status(200).json({ message: message.character.update.success, characters: await Character.find() });
