@@ -14,7 +14,11 @@ type ClanId = Types.ObjectId | null | false;
 function isAdmin(user: IUser) { return user.role === 'admin' || user.role === 'super_admin'; }
 
 async function resolveClan(user: IUser, characterId: string | undefined): Promise<ClanId> {
-  if (isAdmin(user)) return null;
+  if (isAdmin(user)) {
+    if (!characterId) return null;
+    const char = await Character.findById(characterId).select('clan');
+    return (char?.clan as Types.ObjectId | undefined) ?? null;
+  }
   const charIds = user.character.map(String);
   if (!characterId || !charIds.includes(String(characterId))) return false;
   const char = await Character.findById(characterId).select('clan');
@@ -38,7 +42,11 @@ const pop = (q: ReturnType<typeof ShadowWar.findById>) => q
   .populate('battle.exalted.group1.character').populate('battle.exalted.group2.character')
   .populate('battle.eminent.group1.character').populate('battle.eminent.group2.character')
   .populate('battle.famed.group1.character').populate('battle.famed.group2.character')
-  .populate('battle.proud.group1.character').populate('battle.proud.group2.character');
+  .populate('battle.proud.group1.character').populate('battle.proud.group2.character')
+  .populate('finalBattle.exalted.group1.character').populate('finalBattle.exalted.group2.character')
+  .populate('finalBattle.eminent.group1.character').populate('finalBattle.eminent.group2.character')
+  .populate('finalBattle.famed.group1.character').populate('finalBattle.famed.group2.character')
+  .populate('finalBattle.proud.group1.character').populate('finalBattle.proud.group2.character');
 
 router.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -103,10 +111,11 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
 
 router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
+    const { characterId, ...safeBody } = req.body as Record<string, unknown> & { characterId?: string };
     const sw = await pop(ShadowWar.findById(req.params.id));
     if (!sw) { res.status(404).json({ message: 'Shadow War not found' }); return; }
     if (!isAdmin(req.user!)) {
-      const clanId = await resolveClan(req.user!, (req.body.characterId as string));
+      const clanId = await resolveClanForWrite(req.user!, characterId);
       if (clanId === false) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
       if (clanId && String((sw as unknown as {clan?: unknown}).clan ?? '') !== String(clanId)) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
     }
@@ -118,9 +127,9 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
         }
       }
     }
-    if (req.body.date && /^\d{4}-\d{2}-\d{2}$/.test(req.body.date as string)) req.body.date = new Date((req.body.date as string) + 'T12:00:00Z');
-    if (req.body.enemyClan === '') req.body.enemyClan = null;
-    Object.assign(sw, req.body);
+    if (safeBody.date && /^\d{4}-\d{2}-\d{2}$/.test(safeBody.date as string)) safeBody.date = new Date((safeBody.date as string) + 'T12:00:00Z');
+    if (safeBody.enemyClan === '') safeBody.enemyClan = null;
+    Object.assign(sw, safeBody);
     const updated    = await (sw as unknown as { save(): Promise<{ _id: unknown; date: unknown }> }).save();
     const updatedPop = await pop(ShadowWar.findById(updated._id));
     const newlyAssigned: Array<{_id: unknown; name?: string}> = [];
@@ -144,6 +153,11 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
         }
       } catch (e) { console.error('shadowwar:assigned socket error:', e); }
     }
+    try {
+      const { getIO } = await import('../../socket');
+      const swClanId = String((updatedPop as unknown as { clan?: unknown }).clan ?? '');
+      if (swClanId) getIO().to(`clan:${swClanId}`).except(`user:${String(req.user!._id)}`).emit('shadowwar:updated', { shadowWarId: String(updated._id) });
+    } catch (e) { console.warn('shadowwar:updated socket error:', (e as Error).message); }
     res.status(200).json(updatedPop);
   } catch (err) { res.status(500).json({ error: message.user.error, details: (err as Error).message }); }
 });
@@ -190,6 +204,11 @@ router.post('/:id/respond', async (req: Request, res: Response): Promise<void> =
     }
 
     await sw.save();
+    try {
+      const { getIO } = await import('../../socket');
+      const clanId = String(sw.clan ?? '');
+      if (clanId) getIO().to(`clan:${clanId}`).emit('shadowwar:updated', { shadowWarId: String(sw._id) });
+    } catch (e) { console.warn('shadowwar:respond socket error:', (e as Error).message); }
     res.status(200).json({ confirmed: true });
   } catch { res.status(500).json({ error: message.user.error }); }
 });
@@ -199,7 +218,7 @@ router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
     const sw = await ShadowWar.findById(req.params.id);
     if (!sw) { res.status(404).json({ message: 'Shadow War not found' }); return; }
     if (!isAdmin(req.user!)) {
-      const clanId = await resolveClan(req.user!, (req.query.characterId as string));
+      const clanId = await resolveClanForWrite(req.user!, (req.query.characterId as string));
       if (clanId === false) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
       if (clanId && String((sw as unknown as {clan?: unknown}).clan ?? '') !== String(clanId)) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
     }

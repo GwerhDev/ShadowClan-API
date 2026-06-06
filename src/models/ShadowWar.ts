@@ -18,6 +18,12 @@ const shadowWarSchema = new Schema<IShadowWar>({
     famed:   [matchSchema],
     proud:   [matchSchema],
   },
+  finalBattle: {
+    exalted: [matchSchema],
+    eminent: [matchSchema],
+    famed:   [matchSchema],
+    proud:   [matchSchema],
+  },
   confirmed: [{ type: Schema.Types.ObjectId, ref: 'Character' }],
   declined:  [{ type: Schema.Types.ObjectId, ref: 'Character' }],
   completed: { type: Boolean, default: false },

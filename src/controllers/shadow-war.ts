@@ -54,6 +54,11 @@ router.patch('/:id/confirm', async (req: Request, res: Response): Promise<void> 
     const confirmed = new Set(sw.confirmed.map(String));
     for (const id of assigned) { if (!confirmed.has(id)) sw.confirmed.push(id as unknown as typeof sw.confirmed[0]); }
     await sw.save();
+    try {
+      const { getIO } = await import('../socket');
+      const clanId = String(sw.clan ?? '');
+      if (clanId) getIO().to(`clan:${clanId}`).emit('shadowwar:updated', { shadowWarId: String(sw._id) });
+    } catch (e) { console.warn('shadowwar:confirm socket error:', (e as Error).message); }
     res.status(200).json({ message: 'Participación confirmada.' });
   } catch (err) {
     res.status(500).json({ error: 'Error del servidor', message: (err as Error).message });
@@ -93,6 +98,11 @@ router.post('/:id/respond', async (req: Request, res: Response): Promise<void> =
       sw.declined  = sw.declined.filter(id => String(id) !== characterId) as typeof sw.declined;
     }
     await sw.save();
+    try {
+      const { getIO } = await import('../socket');
+      const clanId = String(sw.clan ?? '');
+      if (clanId) getIO().to(`clan:${clanId}`).emit('shadowwar:updated', { shadowWarId: String(sw._id) });
+    } catch (e) { console.warn('shadowwar:respond socket error:', (e as Error).message); }
     res.status(200).json({ message: 'Participación actualizada.' });
   } catch (err) {
     res.status(500).json({ error: 'Error del servidor', message: (err as Error).message });

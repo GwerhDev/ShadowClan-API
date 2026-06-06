@@ -14,7 +14,11 @@ type ClanId = Types.ObjectId | null | false;
 function isAdmin(user: IUser) { return user.role === 'admin' || user.role === 'super_admin'; }
 
 async function resolveClan(user: IUser, characterId: string | undefined): Promise<ClanId> {
-  if (isAdmin(user)) return null;
+  if (isAdmin(user)) {
+    if (!characterId) return null;
+    const char = await Character.findById(characterId).select('clan');
+    return (char?.clan as Types.ObjectId | undefined) ?? null;
+  }
   const charIds = user.character.map(String);
   if (!characterId || !charIds.includes(String(characterId))) return false;
   const char = await Character.findById(characterId).select('clan');
@@ -35,7 +39,8 @@ async function resolveClanForWrite(user: IUser, characterId: string | undefined)
 
 const pop = (q: ReturnType<typeof AccursedTower.find> | ReturnType<typeof AccursedTower.findById>) =>
   (q as ReturnType<typeof AccursedTower.findById>)
-    .populate('enemyClan').populate('roster.group1').populate('roster.group2').populate('roster.group3');
+    .populate('enemyClan').populate('roster.group1').populate('roster.group2').populate('roster.group3')
+    .populate('finalRoster.group1').populate('finalRoster.group2').populate('finalRoster.group3');
 
 router.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -131,19 +136,26 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
     const tower = await AccursedTower.findById(req.params.id);
     if (!tower) { res.status(404).json({ message: 'Torre no encontrada.' }); return; }
     if (!isAdmin(req.user!)) {
-      const clanId = await resolveClan(req.user!, (req.body.characterId as string));
+      const clanId = await resolveClanForWrite(req.user!, (req.body.characterId as string));
       if (clanId === false) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
       if (clanId && String(tower.clan ?? '') !== String(clanId)) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
     }
-    const { towerNumber, date, roster, enemyClan, completed, result } = req.body as Record<string, unknown>;
+    const { towerNumber, date, roster, enemyClan, completed, result, finalRoster } = req.body as Record<string, unknown>;
     if (towerNumber !== undefined) tower.towerNumber = towerNumber as number;
     if (date !== undefined) tower.date = /^\d{4}-\d{2}-\d{2}$/.test(date as string) ? new Date((date as string) + 'T12:00:00Z') : new Date(date as string);
     if (enemyClan !== undefined) tower.enemyClan = (enemyClan as string | undefined) ? (enemyClan as unknown as import("../../types").IShadowWar["enemyClan"]) : undefined;
-    if (roster)                  tower.roster    = roster as typeof tower.roster;
+    if (roster)                  tower.roster      = roster as typeof tower.roster;
+    if (finalRoster !== undefined) (tower as any).finalRoster = finalRoster;
     if (completed !== undefined) tower.completed = completed as boolean;
     if (result !== undefined)    tower.result    = result as typeof tower.result;
     await tower.save();
-    res.status(200).json(await pop(AccursedTower.findById(tower._id)));
+    const updatedTower = await pop(AccursedTower.findById(tower._id));
+    try {
+      const { getIO } = await import('../../socket');
+      const towerClanId = String(tower.clan ?? '');
+      if (towerClanId) getIO().to(`clan:${towerClanId}`).except(`user:${String(req.user!._id)}`).emit('tower:updated', { towerId: String(tower._id) });
+    } catch (e) { console.warn('tower:updated socket error:', (e as Error).message); }
+    res.status(200).json(updatedTower);
   } catch (err) { res.status(500).json({ error: message.user.error, details: (err as Error).message }); }
 });
 
@@ -152,7 +164,7 @@ router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
     const tower = await AccursedTower.findById(req.params.id);
     if (!tower) { res.status(404).json({ message: 'Torre no encontrada.' }); return; }
     if (!isAdmin(req.user!)) {
-      const clanId = await resolveClan(req.user!, (req.query.characterId as string));
+      const clanId = await resolveClanForWrite(req.user!, (req.query.characterId as string));
       if (clanId === false) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
       if (clanId && String(tower.clan ?? '') !== String(clanId)) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
     }

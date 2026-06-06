@@ -11,6 +11,11 @@ const accursedTowerSchema = new Schema<IAccursedTower>({
     group2: [{ type: Schema.Types.ObjectId, ref: 'Character' }],
     group3: [{ type: Schema.Types.ObjectId, ref: 'Character' }],
   },
+  finalRoster: {
+    group1: [{ type: Schema.Types.ObjectId, ref: 'Character' }],
+    group2: [{ type: Schema.Types.ObjectId, ref: 'Character' }],
+    group3: [{ type: Schema.Types.ObjectId, ref: 'Character' }],
+  },
   confirmed: [{ type: Schema.Types.ObjectId, ref: 'Character' }],
   result:    { type: String, enum: ['victory', 'defeat', 'draw', 'pending'], default: 'pending' },
   active:    { type: Boolean, default: true },

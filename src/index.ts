@@ -56,12 +56,24 @@ async function main(): Promise<void> {
     }
   });
 
-  io.on('connection', socket => {
+  io.on('connection', async socket => {
     const sock = socket as unknown as SocketWithUser;
     if (sock.userId) {
       sock.join(`user:${sock.userId}`);
       if (sock.handshake.query['source'] === 'dashboard') {
         sock.join(`dashboard:${sock.userId}`);
+      }
+      try {
+        const User      = (await import('./models/User')).default;
+        const Character = (await import('./models/Character')).default;
+        const userDoc   = await User.findById(sock.userId).select('character');
+        if (userDoc?.character?.length) {
+          const chars   = await Character.find({ _id: { $in: userDoc.character } }).select('clan');
+          const clanIds = [...new Set(chars.map(c => String(c.clan)).filter(id => id && id !== 'null' && id !== 'undefined'))];
+          for (const clanId of clanIds) sock.join(`clan:${clanId}`);
+        }
+      } catch (e) {
+        console.warn('Socket clan-room join error:', (e as Error).message);
       }
     }
   });

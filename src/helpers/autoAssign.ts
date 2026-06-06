@@ -59,11 +59,14 @@ export function autoAssignSW(members: Member[]) {
   for (let t = 0; t < 4; t++) {
     const tierPool = sorted.slice(t * TIER_SIZE, (t + 1) * TIER_SIZE)
     // 6 slots for this tier (3 matches × 2 groups), each holds 4 members
+    // Slots 0-2 = group1 of each match, slots 3-5 = group2 of each match.
+    // greedyFill fills earlier slots first when scores tie, so group1s are
+    // saturated before anyone is placed in group2.
     const slots = greedyFill(tierPool, Array(6).fill(4))
     const ids = (g: Member[]) => g.map(m => String(m._id))
     result[tierNames[t]] = [0, 1, 2].map(i => ({
-      group1: { character: ids(slots[i * 2]) },
-      group2: { character: ids(slots[i * 2 + 1]) },
+      group1: { character: ids(slots[i]) },
+      group2: { character: ids(slots[i + 3]) },
     }))
   }
   return result

@@ -79,6 +79,7 @@ export interface IShadowWar extends Document {
   result?: MatchResult;
   enemyClan?: Types.ObjectId;
   battle: IBattle;
+  finalBattle?: IBattle;
   confirmed: Types.ObjectId[];
   declined:  Types.ObjectId[];
   completed: boolean;
@@ -98,6 +99,7 @@ export interface IAccursedTower extends Document {
   date: Date;
   enemyClan?: Types.ObjectId;
   roster: IAccursedTowerRoster;
+  finalRoster?: IAccursedTowerRoster;
   confirmed: Types.ObjectId[];
   result: MatchResult;
   active: boolean;
