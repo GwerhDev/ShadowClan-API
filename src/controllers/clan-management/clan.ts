@@ -531,4 +531,33 @@ router.patch('/:clanId/saved-roster', async (req: Request, res: Response): Promi
   } catch { res.status(500).json({ error: message.user.error }); }
 });
 
+router.post('/:clanId/auto-assign', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const clan = await Clan.findById(req.params.clanId).select('leader officer member');
+    if (!clan) { res.status(404).json({ message: 'Clan not found' }); return; }
+    if (!charIsOfficerOrLeader(clan, req.user!)) {
+      res.status(403).json({ message: 'Se requiere ser líder u oficial del clan' }); return;
+    }
+
+    const { type } = req.body as { type?: string };
+    if (type !== 'accursed-tower' && type !== 'shadow-war') {
+      res.status(400).json({ message: 'Tipo inválido. Use "accursed-tower" o "shadow-war"' }); return;
+    }
+
+    const allIds = [
+      ...(clan.leader ? [String(clan.leader)] : []),
+      ...clan.officer.map(String),
+      ...clan.member.map(String),
+    ];
+    const members = await Character.find({
+      _id: { $in: allIds },
+      memberStatus: { $nin: ['inactivo', 'retirado'] },
+    }).select('_id currentClass score').lean();
+
+    const { autoAssignAT, autoAssignSW } = await import('../../helpers/autoAssign');
+    const result = type === 'accursed-tower' ? autoAssignAT(members) : autoAssignSW(members);
+    res.status(200).json(result);
+  } catch { res.status(500).json({ error: message.user.error }); }
+});
+
 export default router;
