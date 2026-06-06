@@ -57,7 +57,7 @@ export interface IClan extends Document {
 }
 
 export interface IMatchGroup {
-  character: Types.ObjectId[];
+  character: Array<Types.ObjectId | null>;
 }
 
 export interface IMatch extends Document {
@@ -88,9 +88,9 @@ export interface IShadowWar extends Document {
 }
 
 export interface IAccursedTowerRoster {
-  group1: Types.ObjectId[];
-  group2: Types.ObjectId[];
-  group3: Types.ObjectId[];
+  group1: Array<Types.ObjectId | null>;
+  group2: Array<Types.ObjectId | null>;
+  group3: Array<Types.ObjectId | null>;
 }
 
 export interface IAccursedTower extends Document {
@@ -101,6 +101,7 @@ export interface IAccursedTower extends Document {
   roster: IAccursedTowerRoster;
   finalRoster?: IAccursedTowerRoster;
   confirmed: Types.ObjectId[];
+  declined:  Types.ObjectId[];
   result: MatchResult;
   active: boolean;
   completed: boolean;

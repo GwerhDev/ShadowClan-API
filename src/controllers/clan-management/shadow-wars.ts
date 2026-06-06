@@ -37,16 +37,49 @@ async function resolveClanForWrite(user: IUser, characterId: string | undefined)
   return (clan?._id as Types.ObjectId | undefined) ?? false;
 }
 
-const pop = (q: ReturnType<typeof ShadowWar.findById>) => q
-  .populate('enemyClan').populate('confirmed').populate('declined')
-  .populate('battle.exalted.group1.character').populate('battle.exalted.group2.character')
-  .populate('battle.eminent.group1.character').populate('battle.eminent.group2.character')
-  .populate('battle.famed.group1.character').populate('battle.famed.group2.character')
-  .populate('battle.proud.group1.character').populate('battle.proud.group2.character')
-  .populate('finalBattle.exalted.group1.character').populate('finalBattle.exalted.group2.character')
-  .populate('finalBattle.eminent.group1.character').populate('finalBattle.eminent.group2.character')
-  .populate('finalBattle.famed.group1.character').populate('finalBattle.famed.group2.character')
-  .populate('finalBattle.proud.group1.character').populate('finalBattle.proud.group2.character');
+const CATS = ['exalted', 'eminent', 'famed', 'proud'] as const;
+
+async function populateSWBattle(sws: any[]): Promise<any[]> {
+  const allIds = new Set<string>();
+  for (const sw of sws) {
+    for (const battle of ['battle', 'finalBattle'] as const) {
+      for (const cat of CATS) {
+        for (const match of (sw[battle]?.[cat] ?? [])) {
+          for (const id of (match.group1?.character ?? [])) if (id) allIds.add(String(id));
+          for (const id of (match.group2?.character ?? [])) if (id) allIds.add(String(id));
+        }
+      }
+    }
+  }
+  const chars = allIds.size
+    ? await Character.find({ _id: { $in: [...allIds] } }).select('name currentClass score clan').lean()
+    : [];
+  const charMap = new Map(chars.map(c => [String((c as any)._id), c]));
+  const mapGroup = (g: any[]) => (g ?? []).map((id: any) => id ? (charMap.get(String(id)) ?? null) : null);
+  return sws.map(sw => {
+    const obj = sw.toObject ? sw.toObject() : { ...sw };
+    for (const battle of ['battle', 'finalBattle'] as const) {
+      if (!obj[battle]) continue;
+      for (const cat of CATS) {
+        if (!obj[battle][cat]) continue;
+        obj[battle][cat] = (obj[battle][cat] as any[]).map((match: any) => ({
+          ...match,
+          group1: { ...match.group1, character: mapGroup(match.group1?.character) },
+          group2: { ...match.group2, character: mapGroup(match.group2?.character) },
+        }));
+      }
+    }
+    return obj;
+  });
+}
+
+async function pop(q: ReturnType<typeof ShadowWar.findById>): Promise<any> {
+  const result = await q.populate('enemyClan').populate('confirmed').populate('declined').lean();
+  if (!result) return null;
+  if (Array.isArray(result)) return populateSWBattle(result);
+  const [populated] = await populateSWBattle([result]);
+  return populated;
+}
 
 router.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -112,25 +145,25 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
 router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
     const { characterId, ...safeBody } = req.body as Record<string, unknown> & { characterId?: string };
-    const sw = await pop(ShadowWar.findById(req.params.id));
+    const sw = await ShadowWar.findById(req.params.id);
     if (!sw) { res.status(404).json({ message: 'Shadow War not found' }); return; }
     if (!isAdmin(req.user!)) {
       const clanId = await resolveClanForWrite(req.user!, characterId);
       if (clanId === false) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
-      if (clanId && String((sw as unknown as {clan?: unknown}).clan ?? '') !== String(clanId)) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
+      if (clanId && String(sw.clan ?? '') !== String(clanId)) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
     }
     const oldAssigned = new Set<string>();
     for (const cat of ['exalted', 'eminent', 'famed', 'proud'] as const) {
-      for (const match of ((sw as unknown as {battle: unknown}).battle as Record<string, Array<{group1:{character:Array<{_id?:unknown}>};group2:{character:Array<{_id?:unknown}>}}>>) [cat] ?? []) {
-        for (const char of [...(match.group1?.character ?? []), ...(match.group2?.character ?? [])]) {
-          if (char?._id) oldAssigned.add(String(char._id));
+      for (const match of (sw.battle[cat] ?? [])) {
+        for (const id of [...(match.group1?.character ?? []), ...(match.group2?.character ?? [])]) {
+          if (id) oldAssigned.add(String(id));
         }
       }
     }
     if (safeBody.date && /^\d{4}-\d{2}-\d{2}$/.test(safeBody.date as string)) safeBody.date = new Date((safeBody.date as string) + 'T12:00:00Z');
     if (safeBody.enemyClan === '') safeBody.enemyClan = null;
     Object.assign(sw, safeBody);
-    const updated    = await (sw as unknown as { save(): Promise<{ _id: unknown; date: unknown }> }).save();
+    const updated    = await sw.save();
     const updatedPop = await pop(ShadowWar.findById(updated._id));
     const newlyAssigned: Array<{_id: unknown; name?: string}> = [];
     for (const cat of ['exalted', 'eminent', 'famed', 'proud'] as const) {

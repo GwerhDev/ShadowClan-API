@@ -2,8 +2,8 @@ import { Schema, model } from 'mongoose';
 import type { IShadowWar, IMatch } from '../types';
 
 const matchSchema = new Schema<IMatch>({
-  group1: { character: [{ type: Schema.Types.ObjectId, ref: 'Character' }] },
-  group2: { character: [{ type: Schema.Types.ObjectId, ref: 'Character' }] },
+  group1: { character: { type: [Schema.Types.Mixed], default: [] } },
+  group2: { character: { type: [Schema.Types.Mixed], default: [] } },
   result: { type: String },
 });
 

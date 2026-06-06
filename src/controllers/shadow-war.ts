@@ -4,12 +4,46 @@ import Character from '../models/Character';
 
 const router = Router();
 
-const populate = (q: ReturnType<typeof ShadowWar.findById>) => q
-  .populate('confirmed').populate('declined').populate('enemyClan')
-  .populate('battle.exalted.group1.character').populate('battle.exalted.group2.character')
-  .populate('battle.eminent.group1.character').populate('battle.eminent.group2.character')
-  .populate('battle.famed.group1.character').populate('battle.famed.group2.character')
-  .populate('battle.proud.group1.character').populate('battle.proud.group2.character');
+const CATS = ['exalted', 'eminent', 'famed', 'proud'] as const;
+
+async function populateSWBattle(sws: any[]): Promise<any[]> {
+  const allIds = new Set<string>();
+  for (const sw of sws) {
+    for (const cat of CATS) {
+      for (const match of (sw.battle?.[cat] ?? [])) {
+        for (const id of (match.group1?.character ?? [])) if (id) allIds.add(String(id));
+        for (const id of (match.group2?.character ?? [])) if (id) allIds.add(String(id));
+      }
+    }
+  }
+  const chars = allIds.size
+    ? await Character.find({ _id: { $in: [...allIds] } }).select('name currentClass score clan').lean()
+    : [];
+  const charMap = new Map(chars.map(c => [String((c as any)._id), c]));
+  const mapGroup = (g: any[]) => (g ?? []).map((id: any) => id ? (charMap.get(String(id)) ?? null) : null);
+  return sws.map(sw => {
+    const obj = sw.toObject ? sw.toObject() : { ...sw };
+    if (obj.battle) {
+      for (const cat of CATS) {
+        if (!obj.battle[cat]) continue;
+        obj.battle[cat] = (obj.battle[cat] as any[]).map((match: any) => ({
+          ...match,
+          group1: { ...match.group1, character: mapGroup(match.group1?.character) },
+          group2: { ...match.group2, character: mapGroup(match.group2?.character) },
+        }));
+      }
+    }
+    return obj;
+  });
+}
+
+async function populate(q: ReturnType<typeof ShadowWar.findById>): Promise<any> {
+  const result = await q.populate('confirmed').populate('declined').populate('enemyClan').lean();
+  if (!result) return null;
+  if (Array.isArray(result)) return populateSWBattle(result);
+  const [populated] = await populateSWBattle([result]);
+  return populated;
+}
 
 router.get('/active', async (req: Request, res: Response): Promise<void> => {
   try {

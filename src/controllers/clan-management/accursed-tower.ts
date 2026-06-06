@@ -37,10 +37,34 @@ async function resolveClanForWrite(user: IUser, characterId: string | undefined)
   return (clan?._id as Types.ObjectId | undefined) ?? false;
 }
 
-const pop = (q: ReturnType<typeof AccursedTower.find> | ReturnType<typeof AccursedTower.findById>) =>
-  (q as ReturnType<typeof AccursedTower.findById>)
-    .populate('enemyClan').populate('roster.group1').populate('roster.group2').populate('roster.group3')
-    .populate('finalRoster.group1').populate('finalRoster.group2').populate('finalRoster.group3');
+async function populateRosters(towers: any[]): Promise<any[]> {
+  const allIds = new Set<string>();
+  for (const t of towers) {
+    for (const grp of ['group1', 'group2', 'group3'] as const) {
+      for (const id of (t.roster?.[grp] ?? []))      if (id) allIds.add(String(id));
+      for (const id of (t.finalRoster?.[grp] ?? [])) if (id) allIds.add(String(id));
+    }
+  }
+  const chars = allIds.size
+    ? await Character.find({ _id: { $in: [...allIds] } }).select('name currentClass score clan').lean()
+    : [];
+  const charMap = new Map(chars.map(c => [String((c as any)._id), c]));
+  const mapGroup = (g: any[]) => (g ?? []).map((id: any) => id ? (charMap.get(String(id)) ?? null) : null);
+  return towers.map(t => {
+    const obj = t.toObject ? t.toObject() : { ...t };
+    if (obj.roster)      obj.roster      = { group1: mapGroup(obj.roster.group1),      group2: mapGroup(obj.roster.group2),      group3: mapGroup(obj.roster.group3) };
+    if (obj.finalRoster) obj.finalRoster = { group1: mapGroup(obj.finalRoster.group1), group2: mapGroup(obj.finalRoster.group2), group3: mapGroup(obj.finalRoster.group3) };
+    return obj;
+  });
+}
+
+async function pop(q: any): Promise<any> {
+  const result = await (q as ReturnType<typeof AccursedTower.findById>).populate('enemyClan').lean();
+  if (!result) return null;
+  if (Array.isArray(result)) return populateRosters(result);
+  const [populated] = await populateRosters([result]);
+  return populated;
+}
 
 router.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -108,12 +132,30 @@ router.post('/clans', async (req: Request, res: Response): Promise<void> => {
 router.post('/:id/respond', async (req: Request, res: Response): Promise<void> => {
   try {
     const charIds = req.user!.character.map(String);
-    const { characterId } = req.body as { characterId?: string };
-    const charId = characterId && charIds.includes(String(characterId)) ? String(characterId) : charIds[0];
+    const { characterId, action } = req.body as { characterId?: string; action?: string };
+    const charId = characterId && charIds.includes(String(characterId)) ? String(characterId) : null;
+    if (!charId) { res.status(400).json({ message: 'characterId requerido y debe pertenecerte.' }); return; }
     const tower = await AccursedTower.findById(req.params.id);
     if (!tower) { res.status(404).json({ message: 'Torre no encontrada.' }); return; }
-    const already = new Set((tower.confirmed ?? []).map(String));
-    if (!already.has(charId)) { tower.confirmed.push(charId as unknown as typeof tower.confirmed[0]); await tower.save(); }
+
+    const charRef = charId as unknown as typeof tower.confirmed[0];
+    const act = action ?? 'confirm';
+    if (act === 'confirm') {
+      tower.declined  = tower.declined.filter(id => String(id) !== charId) as typeof tower.declined;
+      if (!tower.confirmed.some(id => String(id) === charId)) tower.confirmed.push(charRef);
+    } else if (act === 'decline') {
+      tower.confirmed = tower.confirmed.filter(id => String(id) !== charId) as typeof tower.confirmed;
+      if (!tower.declined.some(id => String(id) === charId)) tower.declined.push(charRef);
+    } else {
+      tower.confirmed = tower.confirmed.filter(id => String(id) !== charId) as typeof tower.confirmed;
+      tower.declined  = tower.declined.filter(id => String(id) !== charId) as typeof tower.declined;
+    }
+    await tower.save();
+    try {
+      const { getIO } = await import('../../socket');
+      const clanId = String(tower.clan ?? '');
+      if (clanId) getIO().to(`clan:${clanId}`).emit('tower:updated', { towerId: String(tower._id) });
+    } catch (e) { console.warn('tower:respond socket error:', (e as Error).message); }
     res.status(200).json({ confirmed: true });
   } catch { res.status(500).json({ error: message.user.error }); }
 });
@@ -140,6 +182,12 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
       if (clanId === false) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
       if (clanId && String(tower.clan ?? '') !== String(clanId)) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
     }
+
+    const oldAssigned = new Set<string>();
+    for (const g of ['group1', 'group2', 'group3'] as const) {
+      for (const id of (tower.roster?.[g] ?? [])) if (id) oldAssigned.add(String(id));
+    }
+
     const { towerNumber, date, roster, enemyClan, completed, result, finalRoster } = req.body as Record<string, unknown>;
     if (towerNumber !== undefined) tower.towerNumber = towerNumber as number;
     if (date !== undefined) tower.date = /^\d{4}-\d{2}-\d{2}$/.test(date as string) ? new Date((date as string) + 'T12:00:00Z') : new Date(date as string);
@@ -150,11 +198,37 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
     if (result !== undefined)    tower.result    = result as typeof tower.result;
     await tower.save();
     const updatedTower = await pop(AccursedTower.findById(tower._id));
+
+    const towerClanId = String(tower.clan ?? '');
     try {
       const { getIO } = await import('../../socket');
-      const towerClanId = String(tower.clan ?? '');
-      if (towerClanId) getIO().to(`clan:${towerClanId}`).except(`user:${String(req.user!._id)}`).emit('tower:updated', { towerId: String(tower._id) });
-    } catch (e) { console.warn('tower:updated socket error:', (e as Error).message); }
+      const io = getIO();
+      if (towerClanId) io.to(`clan:${towerClanId}`).except(`user:${String(req.user!._id)}`).emit('tower:updated', { towerId: String(tower._id) });
+
+      if (roster) {
+        const newlyAssigned: Array<{ _id: unknown; name?: string }> = [];
+        for (const g of ['group1', 'group2', 'group3'] as const) {
+          for (const char of ((updatedTower as any)?.roster?.[g] ?? [])) {
+            if (char?._id && !oldAssigned.has(String(char._id))) newlyAssigned.push(char);
+          }
+        }
+        if (newlyAssigned.length) {
+          const User = (await import('../../models/User')).default;
+          for (const char of newlyAssigned) {
+            const owner = await User.findOne({ character: char._id });
+            if (owner) io.to(`user:${String(owner._id)}`).emit('tower:assigned', {
+              id: `tower:${String(tower._id)}:${String(char._id)}`,
+              towerId: String(tower._id),
+              characterId: String(char._id),
+              characterName: (char as any).name,
+              towerNumber: (updatedTower as any)?.towerNumber,
+              date: (updatedTower as any)?.date,
+            });
+          }
+        }
+      }
+    } catch (e) { console.warn('tower socket error:', (e as Error).message); }
+
     res.status(200).json(updatedTower);
   } catch (err) { res.status(500).json({ error: message.user.error, details: (err as Error).message }); }
 });

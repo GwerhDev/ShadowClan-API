@@ -4,9 +4,32 @@ import Character    from '../models/Character';
 
 const router = Router();
 
-const pop = (q: ReturnType<typeof AccursedTower.find> | ReturnType<typeof AccursedTower.findById>) =>
-  (q as ReturnType<typeof AccursedTower.findById>)
-    .populate('enemyClan').populate('roster.group1').populate('roster.group2').populate('roster.group3');
+async function populateRosters(towers: any[]): Promise<any[]> {
+  const allIds = new Set<string>();
+  for (const t of towers) {
+    for (const grp of ['group1', 'group2', 'group3'] as const) {
+      for (const id of (t.roster?.[grp] ?? [])) if (id) allIds.add(String(id));
+    }
+  }
+  const chars = allIds.size
+    ? await Character.find({ _id: { $in: [...allIds] } }).select('name currentClass score clan').lean()
+    : [];
+  const charMap = new Map(chars.map(c => [String((c as any)._id), c]));
+  const mapGroup = (g: any[]) => (g ?? []).map((id: any) => id ? (charMap.get(String(id)) ?? null) : null);
+  return towers.map(t => {
+    const obj = t.toObject ? t.toObject() : { ...t };
+    if (obj.roster) obj.roster = { group1: mapGroup(obj.roster.group1), group2: mapGroup(obj.roster.group2), group3: mapGroup(obj.roster.group3) };
+    return obj;
+  });
+}
+
+async function pop(q: any): Promise<any> {
+  const result = await (q as ReturnType<typeof AccursedTower.findById>).populate('enemyClan').lean();
+  if (!result) return null;
+  if (Array.isArray(result)) return populateRosters(result);
+  const [populated] = await populateRosters([result]);
+  return populated;
+}
 
 router.get('/active', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -24,7 +47,7 @@ router.get('/active', async (req: Request, res: Response): Promise<void> => {
   }
 });
 
-router.patch('/:id/confirm', async (req: Request, res: Response): Promise<void> => {
+router.post('/:id/respond', async (req: Request, res: Response): Promise<void> => {
   try {
     const { decodeToken } = await import('../integrations/jwt');
     const User  = (await import('../models/User')).default;
@@ -34,15 +57,36 @@ router.patch('/:id/confirm', async (req: Request, res: Response): Promise<void> 
     const user    = await User.findById(decoded.data.id);
     if (!user) { res.status(401).json({ message: 'No autorizado' }); return; }
 
-    const { characterId } = req.body as { characterId?: string };
-    const charIds = user.character.map(String);
-    const charId  = characterId && charIds.includes(String(characterId)) ? String(characterId) : charIds[0];
-    const tower   = await AccursedTower.findById(req.params.id);
+    const { characterId, action } = req.body as { characterId?: string; action?: string };
+    if (!characterId) { res.status(400).json({ message: 'characterId requerido' }); return; }
+    if (!user.character.map(String).includes(characterId)) {
+      res.status(403).json({ message: 'El personaje no te pertenece' }); return;
+    }
+
+    const tower = await AccursedTower.findById(req.params.id);
     if (!tower) { res.status(404).json({ message: 'Torre no encontrada.' }); return; }
 
-    const already = new Set((tower.confirmed ?? []).map(String));
-    if (!already.has(charId)) { tower.confirmed.push(charId as unknown as typeof tower.confirmed[0]); await tower.save(); }
-    res.status(200).json({ message: 'Participación confirmada.' });
+    const charRef = characterId as unknown as typeof tower.confirmed[0];
+    const act = action ?? 'confirm';
+
+    if (act === 'confirm') {
+      tower.declined  = tower.declined.filter(id => String(id) !== characterId) as typeof tower.declined;
+      if (!tower.confirmed.some(id => String(id) === characterId)) tower.confirmed.push(charRef);
+    } else if (act === 'decline') {
+      tower.confirmed = tower.confirmed.filter(id => String(id) !== characterId) as typeof tower.confirmed;
+      if (!tower.declined.some(id => String(id) === characterId)) tower.declined.push(charRef);
+    } else {
+      tower.confirmed = tower.confirmed.filter(id => String(id) !== characterId) as typeof tower.confirmed;
+      tower.declined  = tower.declined.filter(id => String(id) !== characterId) as typeof tower.declined;
+    }
+
+    await tower.save();
+    try {
+      const { getIO } = await import('../socket');
+      const clanId = String(tower.clan ?? '');
+      if (clanId) getIO().to(`clan:${clanId}`).emit('tower:updated', { towerId: String(tower._id) });
+    } catch (e) { console.warn('tower:respond socket error:', (e as Error).message); }
+    res.status(200).json({ message: 'Participación actualizada.' });
   } catch (err) {
     res.status(500).json({ error: 'Error del servidor', message: (err as Error).message });
   }
