@@ -19,6 +19,7 @@ const shadowWarSchema = new Schema<IShadowWar>({
     proud:   [matchSchema],
   },
   confirmed: [{ type: Schema.Types.ObjectId, ref: 'Character' }],
+  declined:  [{ type: Schema.Types.ObjectId, ref: 'Character' }],
   completed: { type: Boolean, default: false },
 }, { timestamps: true });
 

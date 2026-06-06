@@ -80,6 +80,7 @@ export interface IShadowWar extends Document {
   enemyClan?: Types.ObjectId;
   battle: IBattle;
   confirmed: Types.ObjectId[];
+  declined:  Types.ObjectId[];
   completed: boolean;
   createdAt: Date;
   updatedAt: Date;

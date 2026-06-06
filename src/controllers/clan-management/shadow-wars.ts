@@ -34,7 +34,7 @@ async function resolveClanForWrite(user: IUser, characterId: string | undefined)
 }
 
 const pop = (q: ReturnType<typeof ShadowWar.findById>) => q
-  .populate('enemyClan').populate('confirmed')
+  .populate('enemyClan').populate('confirmed').populate('declined')
   .populate('battle.exalted.group1.character').populate('battle.exalted.group2.character')
   .populate('battle.eminent.group1.character').populate('battle.eminent.group2.character')
   .populate('battle.famed.group1.character').populate('battle.famed.group2.character')
@@ -172,12 +172,24 @@ router.patch('/:id/confirm', async (req: Request, res: Response): Promise<void> 
 router.post('/:id/respond', async (req: Request, res: Response): Promise<void> => {
   try {
     const charIds = req.user!.character.map(String);
-    const { characterId } = req.body as { characterId?: string };
+    const { characterId, action } = req.body as { characterId?: string; action?: string };
     const charId = characterId && charIds.includes(String(characterId)) ? String(characterId) : charIds[0];
     const sw = await ShadowWar.findById(req.params.id);
     if (!sw) { res.status(404).json({ message: 'Shadow War not found' }); return; }
-    const already = new Set(sw.confirmed.map(String));
-    if (!already.has(charId)) { sw.confirmed.push(charId as unknown as typeof sw.confirmed[0]); await sw.save(); }
+
+    const act = action ?? 'confirm';
+    if (act === 'confirm') {
+      sw.declined  = sw.declined.filter(id => String(id) !== charId) as typeof sw.declined;
+      if (!sw.confirmed.some(id => String(id) === charId)) sw.confirmed.push(charId as unknown as typeof sw.confirmed[0]);
+    } else if (act === 'decline') {
+      sw.confirmed = sw.confirmed.filter(id => String(id) !== charId) as typeof sw.confirmed;
+      if (!sw.declined.some(id => String(id) === charId)) sw.declined.push(charId as unknown as typeof sw.declined[0]);
+    } else if (act === 'pending') {
+      sw.confirmed = sw.confirmed.filter(id => String(id) !== charId) as typeof sw.confirmed;
+      sw.declined  = sw.declined.filter(id => String(id) !== charId) as typeof sw.declined;
+    }
+
+    await sw.save();
     res.status(200).json({ confirmed: true });
   } catch { res.status(500).json({ error: message.user.error }); }
 });
