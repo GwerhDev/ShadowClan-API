@@ -18,6 +18,7 @@ const CLASS_MAP: Record<string, string> = {
   'nigromante': 'necromancer',
   'tempest': 'tempest',
   'arcanista': 'wizard',
+  'conjurador': 'warlock',
 };
 const VALID_CLASS_VALUES = new Set(Object.values(CLASS_MAP));
 

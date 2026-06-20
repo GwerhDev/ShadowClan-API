@@ -11,6 +11,7 @@ const CLASS_ROLE: Record<string, Role> = {
   wizard:      'damage',
   tempest:     'damage',
   barbarian:   'damage',
+  warlock:     'damage',
 }
 
 function roleOf(m: Member): Role {

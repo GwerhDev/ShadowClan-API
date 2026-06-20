@@ -9,7 +9,7 @@ const router = Router();
 const CLASS_LABELS: Record<string, string> = {
   druid: 'Druida', barbarian: 'Bárbaro', bloodknight: 'C. de Sangre',
   crusader: 'G. Divino', demonhunter: 'C. de Demonios', monk: 'Monje',
-  necromancer: 'Nigromante', tempest: 'Tempest', wizard: 'Arcanista',
+  necromancer: 'Nigromante', tempest: 'Tempest', wizard: 'Arcanista', warlock: 'Conjurador',
 };
 
 router.get('/growth', async (req: Request, res: Response): Promise<void> => {
