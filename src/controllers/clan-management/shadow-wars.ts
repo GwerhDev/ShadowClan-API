@@ -166,9 +166,16 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
         }
       }
     }
-    if (safeBody.date && /^\d{4}-\d{2}-\d{2}$/.test(safeBody.date as string)) safeBody.date = new Date((safeBody.date as string) + 'T12:00:00Z');
-    if (safeBody.enemyClan === '') safeBody.enemyClan = null;
-    Object.assign(sw, safeBody);
+    const { date, enemyClan, result, battle, finalBattle, completed } = safeBody as {
+      date?: string; enemyClan?: string | null; result?: string;
+      battle?: any; finalBattle?: any; completed?: boolean;
+    };
+    if (date !== undefined && /^\d{4}-\d{2}-\d{2}$/.test(date)) sw.date = new Date(date + 'T12:00:00Z');
+    if (enemyClan !== undefined) (sw as any).enemyClan = enemyClan || null;
+    if (result    !== undefined) sw.result = result as any;
+    if (battle    !== undefined) sw.battle = battle;
+    if (finalBattle !== undefined) (sw as any).finalBattle = finalBattle;
+    if (completed !== undefined) sw.completed = completed;
     const updated    = await sw.save();
     const updatedPop = await pop(ShadowWar.findById(updated._id));
     const newlyAssigned: Array<{_id: unknown; name?: string}> = [];
