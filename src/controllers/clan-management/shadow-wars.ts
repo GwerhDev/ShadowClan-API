@@ -45,8 +45,8 @@ async function populateSWBattle(sws: any[]): Promise<any[]> {
     for (const battle of ['battle', 'finalBattle'] as const) {
       for (const cat of CATS) {
         for (const match of (sw[battle]?.[cat] ?? [])) {
-          for (const id of (match.group1?.character ?? [])) if (id) allIds.add(String(id));
-          for (const id of (match.group2?.character ?? [])) if (id) allIds.add(String(id));
+          for (const id of (match.group1?.character ?? [])) if (id) allIds.add(String((id as any)?._id ?? id));
+          for (const id of (match.group2?.character ?? [])) if (id) allIds.add(String((id as any)?._id ?? id));
         }
       }
     }
@@ -55,7 +55,13 @@ async function populateSWBattle(sws: any[]): Promise<any[]> {
     ? await Character.find({ _id: { $in: [...allIds] } }).select('name currentClass score clan').lean()
     : [];
   const charMap = new Map(chars.map(c => [String((c as any)._id), c]));
-  const mapGroup = (g: any[]) => (g ?? []).map((id: any) => id ? (charMap.get(String(id)) ?? null) : null);
+  const toId = (v: any): string | null => {
+    if (!v) return null;
+    if (typeof v === 'string') return v;
+    if (typeof v === 'object') return String(v._id ?? v);
+    return String(v);
+  };
+  const mapGroup = (g: any[]) => (g ?? []).map((id: any) => { const s = toId(id); return s ? (charMap.get(s) ?? null) : null; });
   return sws.map(sw => {
     const obj = sw.toObject ? sw.toObject() : { ...sw };
     for (const battle of ['battle', 'finalBattle'] as const) {
@@ -118,7 +124,7 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
       if (clanId && String((sw as unknown as {clan?: unknown}).clan ?? '') !== String(clanId)) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
     }
     res.status(200).json(sw);
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { console.error('GET /shadow-wars/:id error:', err); res.status(500).json({ error: message.user.error }); }
 });
 
 router.post('/', async (req: Request, res: Response): Promise<void> => {
