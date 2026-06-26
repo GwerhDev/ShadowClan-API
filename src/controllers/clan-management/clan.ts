@@ -540,7 +540,7 @@ router.post('/:clanId/auto-assign', async (req: Request, res: Response): Promise
       res.status(403).json({ message: 'Se requiere ser líder u oficial del clan' }); return;
     }
 
-    const { type } = req.body as { type?: string };
+    const { type, formation } = req.body as { type?: string; formation?: any };
     if (type !== 'accursed-tower' && type !== 'shadow-war') {
       res.status(400).json({ message: 'Tipo inválido. Use "accursed-tower" o "shadow-war"' }); return;
     }
@@ -556,7 +556,9 @@ router.post('/:clanId/auto-assign', async (req: Request, res: Response): Promise
     }).select('_id currentClass score').lean();
 
     const { autoAssignAT, autoAssignSW } = await import('../../helpers/autoAssign');
-    const result = type === 'accursed-tower' ? autoAssignAT(members) : autoAssignSW(members);
+    const result = type === 'accursed-tower'
+      ? autoAssignAT(members)
+      : autoAssignSW(members, formation ?? undefined);
     res.status(200).json(result);
   } catch { res.status(500).json({ error: message.user.error }); }
 });
