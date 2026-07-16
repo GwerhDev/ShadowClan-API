@@ -5,6 +5,7 @@ import { Types } from 'mongoose';
 import Clan from '../../models/Clan';
 import Character from '../../models/Character';
 import { message } from '../../messages';
+import { calcScore } from '../../helpers/score';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
@@ -242,6 +243,8 @@ router.post('/:id/sync', upload.single('file'), async (req: Request, res: Respon
       // Leader/officer: update stats only, never add to member[]
       const privilegedId = privilegedByName.get(rawName.toLowerCase());
       if (privilegedId) {
+        const priv = await Character.findById(privilegedId);
+        data.score = calcScore({ resonance: (data.resonance ?? priv?.resonance ?? 0) as number, armor: (data.armor ?? priv?.armor ?? 0) as number, armorPenetration: (data.armorPenetration ?? priv?.armorPenetration ?? 0) as number, power: (data.power ?? priv?.power ?? 0) as number, resistance: (data.resistance ?? priv?.resistance ?? 0) as number });
         await Character.findByIdAndUpdate(privilegedId, data);
         results.push({ name: rawName, status: 'updated' });
         continue;
@@ -250,9 +253,11 @@ router.post('/:id/sync', upload.single('file'), async (req: Request, res: Respon
       let char = await Character.findOne({ name: { $regex: `^${escapeRegex(rawName)}$`, $options: 'i' } });
 
       if (!char) {
+        data.score = calcScore({ resonance: (data.resonance ?? 0) as number, armor: (data.armor ?? 0) as number, armorPenetration: (data.armorPenetration ?? 0) as number, power: (data.power ?? 0) as number, resistance: (data.resistance ?? 0) as number });
         char = await new Character({ name: rawName, ...data, status: 'unclaimed', clan: clan._id }).save();
         results.push({ name: rawName, status: 'created' });
       } else {
+        data.score = calcScore({ resonance: (data.resonance ?? char.resonance ?? 0) as number, armor: (data.armor ?? char.armor ?? 0) as number, armorPenetration: (data.armorPenetration ?? char.armorPenetration ?? 0) as number, power: (data.power ?? char.power ?? 0) as number, resistance: (data.resistance ?? char.resistance ?? 0) as number });
         await Character.findByIdAndUpdate(char._id, { ...data, clan: clan._id });
         results.push({ name: rawName, status: 'updated' });
       }

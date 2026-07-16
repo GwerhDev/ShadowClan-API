@@ -336,6 +336,7 @@ router.post('/:clanId/bulk-import', upload.single('file'), async (req: Request, 
 
       if (!existing) {
         // Create new unclaimed character and add to clan
+        update.score = calcScore({ resonance: (update.resonance ?? 0) as number, armor: (update.armor ?? 0) as number, armorPenetration: (update.armorPenetration ?? 0) as number, power: (update.power ?? 0) as number, resistance: (update.resistance ?? 0) as number });
         const char = await new Character({ name: rawName, ...update, status: 'unclaimed' }).save();
         clan.member.push(char._id as Types.ObjectId);
         await clan.save();
@@ -380,6 +381,7 @@ router.post('/:clanId/bulk-import', upload.single('file'), async (req: Request, 
       }
 
       // Character is unclaimed or in this clan → update stats
+      update.score = calcScore({ resonance: (update.resonance ?? existing.resonance ?? 0) as number, armor: (update.armor ?? existing.armor ?? 0) as number, armorPenetration: (update.armorPenetration ?? existing.armorPenetration ?? 0) as number, power: (update.power ?? existing.power ?? 0) as number, resistance: (update.resistance ?? existing.resistance ?? 0) as number });
       await Character.findByIdAndUpdate(existing._id, update);
 
       // Add to clan if not already a member
@@ -457,6 +459,8 @@ router.post('/:clanId/sync', upload.single('file'), async (req: Request, res: Re
       const privilegedId = privilegedByName.get(rawName.toLowerCase());
       if (privilegedId) {
         // Update their stats but keep their role — never add to member[]
+        const priv = await Character.findById(privilegedId);
+        data.score = calcScore({ resonance: (data.resonance ?? priv?.resonance ?? 0) as number, armor: (data.armor ?? priv?.armor ?? 0) as number, armorPenetration: (data.armorPenetration ?? priv?.armorPenetration ?? 0) as number, power: (data.power ?? priv?.power ?? 0) as number, resistance: (data.resistance ?? priv?.resistance ?? 0) as number });
         await Character.findByIdAndUpdate(privilegedId, data);
         results.push({ name: rawName, status: 'updated' });
         continue;
@@ -465,9 +469,11 @@ router.post('/:clanId/sync', upload.single('file'), async (req: Request, res: Re
       let char = await Character.findOne({ name: { $regex: `^${escapeRegex(rawName)}$`, $options: 'i' } });
 
       if (!char) {
+        data.score = calcScore({ resonance: (data.resonance ?? 0) as number, armor: (data.armor ?? 0) as number, armorPenetration: (data.armorPenetration ?? 0) as number, power: (data.power ?? 0) as number, resistance: (data.resistance ?? 0) as number });
         char = await new Character({ name: rawName, ...data, status: 'unclaimed', clan: clan._id }).save();
         results.push({ name: rawName, status: 'created' });
       } else {
+        data.score = calcScore({ resonance: (data.resonance ?? char.resonance ?? 0) as number, armor: (data.armor ?? char.armor ?? 0) as number, armorPenetration: (data.armorPenetration ?? char.armorPenetration ?? 0) as number, power: (data.power ?? char.power ?? 0) as number, resistance: (data.resistance ?? char.resistance ?? 0) as number });
         await Character.findByIdAndUpdate(char._id, { ...data, clan: clan._id });
         results.push({ name: rawName, status: 'updated' });
       }
