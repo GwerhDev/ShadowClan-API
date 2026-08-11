@@ -4,6 +4,7 @@ import { authorizeRoles } from '../middlewares';
 
 import admin                    from '../controllers/admin';
 import clanManagement           from '../controllers/clan-management';
+import attendance               from '../controllers/attendance';
 import auth                     from '../controllers/auth';
 import clan                     from '../controllers/clan';
 import task                     from '../controllers/task';
@@ -29,6 +30,7 @@ const router = Router();
 
 router.use('/admin',           authorizeRoles([roles.superAdmin, roles.admin]), admin);
 router.use('/clan-management', authorizeRoles([roles.user, roles.leader, roles.officer, roles.admin, roles.superAdmin]), clanManagement);
+router.use('/attendance',      authorizeRoles([roles.user, roles.leader, roles.officer, roles.admin, roles.superAdmin]), attendance);
 
 router.use('/auth',                        auth);
 router.use('/clan',                        clan);
