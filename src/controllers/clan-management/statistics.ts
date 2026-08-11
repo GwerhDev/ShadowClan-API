@@ -50,16 +50,23 @@ async function findInRange<T extends ResultDoc>(
   return summarizeDocs(docs, includeMatches);
 }
 
+const ACTIVITY_TYPES = ['shadow_war', 'accursed_tower'] as const;
+type ActivityType = typeof ACTIVITY_TYPES[number];
+
 router.get('/overview', async (req: Request, res: Response): Promise<void> => {
   try {
     const { characterId, type } = req.query as { characterId?: string; type?: string };
     const range = (req.query.range as string) ?? '30';
 
+    if (!type || !ACTIVITY_TYPES.includes(type as ActivityType)) {
+      res.status(400).json({ message: "type debe ser 'shadow_war' o 'accursed_tower'." }); return;
+    }
+
     const clanId = await resolveClanRead(req.user!, characterId);
     if (clanId === false) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
     if (!clanId) { res.status(400).json({ message: 'characterId requerido.' }); return; }
 
-    const latestCycle = await AttendanceCycle.findOne({ clan: clanId }).sort({ startDate: -1 });
+    const latestCycle = await AttendanceCycle.findOne({ clan: clanId, activityType: type }).sort({ startDate: -1 });
 
     let since: Date | null;
     let until: Date | null;
@@ -81,19 +88,18 @@ router.get('/overview', async (req: Request, res: Response): Promise<void> => {
       since.setDate(until.getDate() - days);
     }
 
-    const [shadowWar, accursedTower] = await Promise.all([
-      findInRange(f => ShadowWar.find(f), clanId, since, until, type === 'shadow_war'),
-      findInRange(f => AccursedTower.find(f), clanId, since, until, type === 'accursed_tower'),
-    ]);
+    const summary = type === 'shadow_war'
+      ? await findInRange(f => ShadowWar.find(f), clanId, since, until, true)
+      : await findInRange(f => AccursedTower.find(f), clanId, since, until, true);
 
     res.status(200).json({
+      type,
       range,
       since,
       until,
       hasCycle: !!latestCycle,
       cycleUsed,
-      shadowWar,
-      accursedTower,
+      ...summary,
     });
   } catch { res.status(500).json({ error: message.user.error }); }
 });

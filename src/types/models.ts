@@ -54,6 +54,8 @@ export interface IClan extends Document {
   leader?: Types.ObjectId;
   savedAccursedTowerAlignments?: { last?: any; custom?: { name: string; data: any; savedAt?: Date }[] };
   savedShadowWarAlignments?: { last?: any; custom?: { name: string; data: any; savedAt?: Date }[] };
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 export interface IMatchGroup {
@@ -101,6 +103,7 @@ export interface IAttendance extends Document {
 
 export interface IAttendanceCycle extends Document {
   clan: Types.ObjectId;
+  activityType: 'shadow_war' | 'accursed_tower';
   name: string;
   startDate: Date;
   endDate: Date;

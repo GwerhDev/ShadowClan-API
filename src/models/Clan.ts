@@ -9,6 +9,6 @@ const clanSchema = new Schema<IClan>({
   leader: { type: Schema.Types.ObjectId, ref: 'Character' },
   savedAccursedTowerAlignments: { type: Schema.Types.Mixed, default: null },
   savedShadowWarAlignments:     { type: Schema.Types.Mixed, default: null },
-});
+}, { timestamps: true });
 
 export default model<IClan>('Clan', clanSchema);

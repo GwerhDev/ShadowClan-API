@@ -166,13 +166,19 @@ router.get('/week', async (req: Request, res: Response): Promise<void> => {
 
 // ── Attendance cycles (rango de fechas para analizar participación) ────────
 
+const CYCLE_ACTIVITY_TYPES = ['shadow_war', 'accursed_tower'] as const;
+
 router.get('/cycles', async (req: Request, res: Response): Promise<void> => {
   try {
     const clanId = await resolveClanRead(req.user!, req.query.characterId as string);
     if (clanId === false) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
     const page  = parseInt((req.query.page  as string) ?? '1',  10) || 1;
     const limit = parseInt((req.query.limit as string) ?? '10', 10) || 10;
-    const filter = clanId ? { clan: clanId } : {};
+    const activityType = req.query.activityType as string | undefined;
+    const filter: Record<string, unknown> = clanId ? { clan: clanId } : {};
+    if (activityType && CYCLE_ACTIVITY_TYPES.includes(activityType as typeof CYCLE_ACTIVITY_TYPES[number])) {
+      filter.activityType = activityType;
+    }
     const total = await AttendanceCycle.countDocuments(filter);
     const data  = await AttendanceCycle.find(filter).sort({ startDate: -1 }).skip((page - 1) * limit).limit(limit);
     res.status(200).json({ total, page, limit, pages: Math.ceil(total / limit), data });
@@ -181,14 +187,18 @@ router.get('/cycles', async (req: Request, res: Response): Promise<void> => {
 
 router.post('/cycles', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { characterId, name, startDate, endDate } = req.body as { characterId?: string; name?: string; startDate?: string; endDate?: string };
+    const { characterId, name, startDate, endDate, activityType } = req.body as { characterId?: string; name?: string; startDate?: string; endDate?: string; activityType?: string };
     const clanId = await getClanForActiveChar(req.user!, characterId);
     if (clanId === false) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
     if (!clanId) { res.status(400).json({ message: 'characterId requerido.' }); return; }
     if (!name?.trim() || !startDate || !endDate) { res.status(400).json({ message: 'name, startDate y endDate son requeridos.' }); return; }
+    if (!activityType || !CYCLE_ACTIVITY_TYPES.includes(activityType as typeof CYCLE_ACTIVITY_TYPES[number])) {
+      res.status(400).json({ message: "activityType debe ser 'shadow_war' o 'accursed_tower'." }); return;
+    }
 
     const cycle = await new AttendanceCycle({
       clan: clanId,
+      activityType,
       name: name.trim(),
       startDate: parseDayStart(startDate),
       endDate: parseDayEnd(endDate),
@@ -200,7 +210,7 @@ router.post('/cycles', async (req: Request, res: Response): Promise<void> => {
 
 router.patch('/cycles/:cycleId', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { characterId, name, startDate, endDate } = req.body as { characterId?: string; name?: string; startDate?: string; endDate?: string };
+    const { characterId, name, startDate, endDate, activityType } = req.body as { characterId?: string; name?: string; startDate?: string; endDate?: string; activityType?: string };
     const cycle = await AttendanceCycle.findById(req.params.cycleId);
     if (!cycle) { res.status(404).json({ message: 'Cycle not found' }); return; }
     if (!isSystemAdmin(req.user!)) {
@@ -211,6 +221,9 @@ router.patch('/cycles/:cycleId', async (req: Request, res: Response): Promise<vo
     if (name !== undefined) cycle.name = name.trim();
     if (startDate !== undefined) cycle.startDate = parseDayStart(startDate);
     if (endDate !== undefined) cycle.endDate = parseDayEnd(endDate);
+    if (activityType !== undefined && CYCLE_ACTIVITY_TYPES.includes(activityType as typeof CYCLE_ACTIVITY_TYPES[number])) {
+      cycle.activityType = activityType as typeof CYCLE_ACTIVITY_TYPES[number];
+    }
     await cycle.save();
     res.status(200).json(cycle);
   } catch { res.status(500).json({ error: message.user.error }); }
@@ -240,6 +253,9 @@ router.get('/cycles/:cycleId', async (req: Request, res: Response): Promise<void
       const clanId = await resolveClanRead(req.user!, req.query.characterId as string);
       if (clanId === false) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
       if (clanId && String(cycle.clan) !== String(clanId)) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
+    }
+    if (cycle.activityType !== 'shadow_war') {
+      res.status(400).json({ message: 'El reporte de asistencia solo está disponible para ciclos de Guerra Sombría.' }); return;
     }
 
     const shadowWars = await ShadowWar.find({ clan: cycle.clan, date: { $gte: cycle.startDate, $lte: cycle.endDate } })
