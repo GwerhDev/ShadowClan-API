@@ -2,6 +2,8 @@ import { Router, type Request, type Response } from 'express';
 import ShadowWar from '../../models/ShadowWar';
 import AccursedTower from '../../models/AccursedTower';
 import AttendanceCycle from '../../models/AttendanceCycle';
+import Clan from '../../models/Clan';
+import Character from '../../models/Character';
 import { message } from '../../messages';
 import type { IUser, MatchResult } from '../../types';
 import { isSystemAdmin, getClanIdForCharacter } from '../../helpers/clanScope';
@@ -38,7 +40,7 @@ function summarizeDocs(docs: ResultDoc[], includeMatches: boolean) {
 }
 
 async function findInRange<T extends ResultDoc>(
-  find: (filter: Record<string, unknown>) => { select: (f: string) => { populate: (f: string) => Promise<T[]> } },
+  find: (filter: Record<string, unknown>) => { select: (f: string) => { populate: (f: string, p: string) => Promise<T[]> } },
   clanId: Types.ObjectId,
   since: Date | null,
   until: Date | null,
@@ -46,7 +48,7 @@ async function findInRange<T extends ResultDoc>(
 ) {
   if (!since || !until) return summarizeDocs([], includeMatches);
   const docs = await find({ clan: clanId, date: { $gte: since, $lte: until }, result: { $in: RESULTS } })
-    .select('date result enemyClan').populate('enemyClan');
+    .select('date result enemyClan').populate('enemyClan', 'name');
   return summarizeDocs(docs, includeMatches);
 }
 
@@ -57,6 +59,7 @@ router.get('/overview', async (req: Request, res: Response): Promise<void> => {
   try {
     const { characterId, type } = req.query as { characterId?: string; type?: string };
     const range = (req.query.range as string) ?? '30';
+    const includeMatches = req.query.includeMatches === 'true';
 
     if (!type || !ACTIVITY_TYPES.includes(type as ActivityType)) {
       res.status(400).json({ message: "type debe ser 'shadow_war' o 'accursed_tower'." }); return;
@@ -89,8 +92,8 @@ router.get('/overview', async (req: Request, res: Response): Promise<void> => {
     }
 
     const summary = type === 'shadow_war'
-      ? await findInRange(f => ShadowWar.find(f), clanId, since, until, true)
-      : await findInRange(f => AccursedTower.find(f), clanId, since, until, true);
+      ? await findInRange(f => ShadowWar.find(f), clanId, since, until, includeMatches)
+      : await findInRange(f => AccursedTower.find(f), clanId, since, until, includeMatches);
 
     res.status(200).json({
       type,
@@ -100,6 +103,64 @@ router.get('/overview', async (req: Request, res: Response): Promise<void> => {
       hasCycle: !!latestCycle,
       cycleUsed,
       ...summary,
+    });
+  } catch { res.status(500).json({ error: message.user.error }); }
+});
+
+// ── Overview summary: roster count + class breakdown + next activities ─────
+// Diseñado para devolver solo lo que el Overview necesita, sin exponer stats,
+// contacto (whatsapp) ni el roster/alineaciones del clan enemigo.
+
+router.get('/summary', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const clanId = await resolveClanRead(req.user!, req.query.characterId as string);
+    if (clanId === false) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
+    if (!clanId) { res.status(400).json({ message: 'characterId requerido.' }); return; }
+
+    const clan = await Clan.findById(clanId).select('leader officer member updatedAt');
+    if (!clan) { res.status(404).json({ message: 'Clan not found' }); return; }
+
+    const rosterIds = [
+      ...(clan.leader ? [clan.leader] : []),
+      ...(clan.officer ?? []),
+      ...(clan.member ?? []),
+    ];
+    const memberCount = rosterIds.length;
+
+    const rosterChars = rosterIds.length
+      ? await Character.find({ _id: { $in: rosterIds } }).select('currentClass').lean()
+      : [];
+    const classCounts: Record<string, number> = {};
+    for (const c of rosterChars) {
+      const key = c.currentClass || 'unknown';
+      classCounts[key] = (classCounts[key] ?? 0) + 1;
+    }
+
+    const now = new Date();
+
+    const swBase = { clan: clanId, completed: { $ne: true } };
+    let nextShadowWar = await ShadowWar.findOne({ ...swBase, date: { $gte: now } })
+      .select('date enemyClan').populate('enemyClan', 'name').sort({ date: 1 });
+    if (!nextShadowWar) {
+      nextShadowWar = await ShadowWar.findOne(swBase).select('date enemyClan').populate('enemyClan', 'name').sort({ date: -1 });
+    }
+
+    const atBase = { clan: clanId, active: true, completed: { $ne: true } };
+    let nextAccursedTower = await AccursedTower.findOne({ ...atBase, date: { $gte: now } })
+      .select('date enemyClan').populate('enemyClan', 'name').sort({ date: 1 });
+    if (!nextAccursedTower) {
+      nextAccursedTower = await AccursedTower.findOne(atBase).select('date enemyClan').populate('enemyClan', 'name').sort({ date: -1 });
+    }
+
+    const cyclesTotal = await AttendanceCycle.countDocuments({ clan: clanId });
+
+    res.status(200).json({
+      memberCount,
+      clanUpdatedAt: clan.updatedAt,
+      classCounts,
+      nextShadowWar: nextShadowWar ? { date: nextShadowWar.date, enemyClan: nextShadowWar.enemyClan } : null,
+      nextAccursedTower: nextAccursedTower ? { date: nextAccursedTower.date, enemyClan: nextAccursedTower.enemyClan } : null,
+      cyclesTotal,
     });
   } catch { res.status(500).json({ error: message.user.error }); }
 });
