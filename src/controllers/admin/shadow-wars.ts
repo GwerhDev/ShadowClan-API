@@ -23,10 +23,10 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 
 router.get('/by-date', async (req: Request, res: Response): Promise<void> => {
   try {
-    const d = new Date(req.query.date as string);
-    const start = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-    const end   = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
-    const sw = await populate(ShadowWar.findOne({ date: { $gte: start, $lt: end } }) as ReturnType<typeof ShadowWar.findById>);
+    const dateStr = req.query.date as string;
+    const start = new Date(dateStr + 'T00:00:00.000Z');
+    const end   = new Date(dateStr + 'T23:59:59.999Z');
+    const sw = await populate(ShadowWar.findOne({ date: { $gte: start, $lte: end } }) as ReturnType<typeof ShadowWar.findById>);
     if (!sw) { res.status(404).json({ message: 'Shadow War not found' }); return; }
     res.status(200).json(sw);
   } catch { res.status(500).json({ error: message.user.error }); }

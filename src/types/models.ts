@@ -87,6 +87,28 @@ export interface IShadowWar extends Document {
   updatedAt: Date;
 }
 
+export interface IAttendance extends Document {
+  clan: Types.ObjectId;
+  activityType: 'shadow_war';
+  shadowWar: Types.ObjectId;
+  date: Date;
+  character: Types.ObjectId;
+  attended: boolean;
+  markedBy?: Types.ObjectId;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface IAttendanceCycle extends Document {
+  clan: Types.ObjectId;
+  name: string;
+  startDate: Date;
+  endDate: Date;
+  createdBy?: Types.ObjectId;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface IAccursedTowerRoster {
   group1: Array<Types.ObjectId | null>;
   group2: Array<Types.ObjectId | null>;

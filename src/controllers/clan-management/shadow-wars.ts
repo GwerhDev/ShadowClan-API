@@ -104,10 +104,10 @@ router.get('/by-date', async (req: Request, res: Response): Promise<void> => {
   try {
     const clanId = await resolveClan(req.user!, (req.query.characterId as string));
     if (clanId === false) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
-    const d = new Date(req.query.date as string);
-    const start = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-    const end   = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
-    const filter = clanId ? { clan: clanId, date: { $gte: start, $lt: end } } : { date: { $gte: start, $lt: end } };
+    const dateStr = req.query.date as string;
+    const start = new Date(dateStr + 'T00:00:00.000Z');
+    const end   = new Date(dateStr + 'T23:59:59.999Z');
+    const filter = clanId ? { clan: clanId, date: { $gte: start, $lte: end } } : { date: { $gte: start, $lte: end } };
     const sw = await pop(ShadowWar.findOne(filter) as ReturnType<typeof ShadowWar.findById>);
     if (!sw) { res.status(404).json({ message: 'Shadow War not found' }); return; }
     res.status(200).json(sw);
