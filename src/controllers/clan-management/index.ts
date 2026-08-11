@@ -4,6 +4,7 @@ import accursedTower from './accursed-tower';
 import clan         from './clan';
 import history      from './history';
 import attendance   from './attendance';
+import statistics   from './statistics';
 
 const router = Router();
 
@@ -12,5 +13,6 @@ router.use('/accursed-tower', accursedTower);
 router.use('/clan',           clan);
 router.use('/history',        history);
 router.use('/attendance',     attendance);
+router.use('/statistics',     statistics);
 
 export default router;
