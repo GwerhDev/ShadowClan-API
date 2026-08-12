@@ -275,11 +275,11 @@ router.get('/cycles', async (req: Request, res: Response): Promise<void> => {
 
 router.post('/cycles', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { characterId, name, startDate, endDate, activityType } = req.body as { characterId?: string; name?: string; startDate?: string; endDate?: string; activityType?: string };
+    const { characterId, startDate, endDate, activityType } = req.body as { characterId?: string; startDate?: string; endDate?: string; activityType?: string };
     const clanId = await getClanForActiveChar(req.user!, characterId);
     if (clanId === false) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
     if (!clanId) { res.status(400).json({ message: 'characterId requerido.' }); return; }
-    if (!name?.trim() || !startDate) { res.status(400).json({ message: 'name y startDate son requeridos.' }); return; }
+    if (!startDate) { res.status(400).json({ message: 'startDate es requerido.' }); return; }
     if (!activityType || !CYCLE_ACTIVITY_TYPES.includes(activityType as typeof CYCLE_ACTIVITY_TYPES[number])) {
       res.status(400).json({ message: "activityType debe ser 'shadow_war' o 'accursed_tower'." }); return;
     }
@@ -291,7 +291,6 @@ router.post('/cycles', async (req: Request, res: Response): Promise<void> => {
     const cycle = await new Cycle({
       clan: clanId,
       activityType,
-      name: name.trim(),
       startDate: parseDayStart(startDate),
       endDate: endDate ? parseDayEnd(endDate) : undefined,
       createdBy: req.user!._id,
@@ -302,7 +301,7 @@ router.post('/cycles', async (req: Request, res: Response): Promise<void> => {
 
 router.patch('/cycles/:cycleId', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { characterId, name, startDate, endDate, activityType } = req.body as { characterId?: string; name?: string; startDate?: string; endDate?: string; activityType?: string };
+    const { characterId, startDate, endDate, activityType } = req.body as { characterId?: string; startDate?: string; endDate?: string; activityType?: string };
     const cycle = await Cycle.findById(req.params.cycleId);
     if (!cycle) { res.status(404).json({ message: 'Cycle not found' }); return; }
     if (!isSystemAdmin(req.user!)) {
@@ -321,7 +320,6 @@ router.patch('/cycles/:cycleId', async (req: Request, res: Response): Promise<vo
       if (err) { res.status(400).json({ message: err }); return; }
     }
 
-    if (name !== undefined) cycle.name = name.trim();
     if (startDate !== undefined) cycle.startDate = parseDayStart(startDate);
     if (endDate !== undefined && endDate) cycle.endDate = parseDayEnd(endDate);
     if (activityType !== undefined && CYCLE_ACTIVITY_TYPES.includes(activityType as typeof CYCLE_ACTIVITY_TYPES[number])) {
