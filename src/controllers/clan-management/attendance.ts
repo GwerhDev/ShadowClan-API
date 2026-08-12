@@ -86,36 +86,48 @@ async function getClanRoster(clanId: Types.ObjectId | string) {
   return chars.map(c => ({ ...c, role: roleLabel[String(c._id)] ?? 'member' }));
 }
 
-// ── Attendance summary for all members of a clan (last N days) ──────────────
+// ── Attendance summary for all members of a clan (30/60/90/último ciclo) ────
 router.get('/members-summary', async (req: Request, res: Response): Promise<void> => {
   try {
     const clanId = await resolveClanRead(req.user!, req.query.characterId as string);
     if (clanId === false) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
-    if (!clanId) { res.status(200).json({}); return; }
+    if (!clanId) { res.status(200).json({ hasCycle: false, data: {} }); return; }
 
-    const days  = parseInt((req.query.range as string) ?? '30', 10) || 30;
-    const until = new Date();
-    const since = new Date();
-    since.setDate(until.getDate() - days);
+    const latestCycle = await Cycle.findOne({ clan: clanId, activityType: 'shadow_war' }).sort({ startDate: -1 });
+    const hasCycle = !!latestCycle;
+
+    const range = (req.query.range as string) ?? '30';
+    let since: Date | null, until: Date | null;
+    if (range === 'cycle') {
+      since = latestCycle ? latestCycle.startDate : null;
+      until = latestCycle ? (latestCycle.endDate ?? new Date()) : null;
+    } else {
+      const days = parseInt(range, 10) || 30;
+      until = new Date();
+      since = new Date();
+      since.setDate(until.getDate() - days);
+    }
 
     const clan = await Clan.findById(clanId).select('leader officer member');
-    if (!clan) { res.status(200).json({}); return; }
+    if (!clan) { res.status(200).json({ hasCycle, data: {} }); return; }
     const allIds = [
       ...(clan.leader ? [String(clan.leader)] : []),
       ...(clan.officer ?? []).map(String),
       ...(clan.member  ?? []).map(String),
     ];
-    if (!allIds.length) { res.status(200).json({}); return; }
+    if (!allIds.length) { res.status(200).json({ hasCycle, data: {} }); return; }
 
-    const shadowWars = await ShadowWar.find({ clan: clanId, date: { $gte: since, $lte: until } }).select('_id');
+    const shadowWars = since && until
+      ? await ShadowWar.find({ clan: clanId, completed: true, date: { $gte: since, $lte: until } }).select('_id')
+      : [];
     const swIds = shadowWars.map(sw => sw._id);
     const totalActivities = swIds.length;
 
-    const result: Record<string, { percentage: number; attended: number; totalActivities: number }> = {};
+    const data: Record<string, { percentage: number; attended: number; totalActivities: number }> = {};
 
     if (!swIds.length) {
-      for (const id of allIds) result[id] = { percentage: 0, attended: 0, totalActivities: 0 };
-      res.status(200).json(result); return;
+      for (const id of allIds) data[id] = { percentage: 0, attended: 0, totalActivities: 0 };
+      res.status(200).json({ hasCycle, data }); return;
     }
 
     const records = await Attendance.find({
@@ -126,10 +138,10 @@ router.get('/members-summary', async (req: Request, res: Response): Promise<void
     for (const id of allIds) {
       const memberRecs = records.filter(r => String(r.character) === id);
       const attended   = memberRecs.filter(r => r.attended).length;
-      result[id] = { percentage: totalActivities ? Math.round((attended / totalActivities) * 100) : 0, attended, totalActivities };
+      data[id] = { percentage: totalActivities ? Math.round((attended / totalActivities) * 100) : 0, attended, totalActivities };
     }
 
-    res.status(200).json(result);
+    res.status(200).json({ hasCycle, data });
   } catch { res.status(500).json({ error: message.user.error }); }
 });
 
@@ -161,7 +173,7 @@ router.get('/member/:characterId/summary', async (req: Request, res: Response): 
     }
 
     const shadowWars = since && until
-      ? await ShadowWar.find({ clan: clanId, date: { $gte: since, $lte: until } }).select('_id')
+      ? await ShadowWar.find({ clan: clanId, completed: true, date: { $gte: since, $lte: until } }).select('_id')
       : [];
     const swIds = shadowWars.map(sw => sw._id);
     const totalActivities = swIds.length;
@@ -405,7 +417,7 @@ router.get('/cycles/:cycleId', async (req: Request, res: Response): Promise<void
     }
 
     const reportUntil = cycle.endDate ?? new Date();
-    const shadowWars = await ShadowWar.find({ clan: cycle.clan, date: { $gte: cycle.startDate, $lte: reportUntil } })
+    const shadowWars = await ShadowWar.find({ clan: cycle.clan, completed: true, date: { $gte: cycle.startDate, $lte: reportUntil } })
       .select('date enemyClan result').populate('enemyClan').sort({ date: 1 });
     const swIds = shadowWars.map(sw => sw._id);
     const totalActivities = shadowWars.length;

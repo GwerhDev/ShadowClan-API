@@ -34,7 +34,7 @@ router.get('/character/:characterId', async (req: Request, res: Response): Promi
     }
 
     const shadowWars = since && until
-      ? await ShadowWar.find({ clan: char.clan, date: { $gte: since, $lte: until } }).select('_id')
+      ? await ShadowWar.find({ clan: char.clan, completed: true, date: { $gte: since, $lte: until } }).select('_id')
       : [];
     const swIds = shadowWars.map(sw => sw._id);
     const totalActivities = swIds.length;
