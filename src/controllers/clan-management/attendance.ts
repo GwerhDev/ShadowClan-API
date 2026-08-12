@@ -54,7 +54,7 @@ async function getClanRoster(clanId: Types.ObjectId | string) {
   for (const m of clan.member ?? []) { const k = String(m); roleOrder[k] = 2; roleLabel[k] = 'member'; }
   const allIds = Object.keys(roleLabel);
 
-  const chars = await Character.find({ _id: { $in: allIds } }).select('name currentClass').lean();
+  const chars = await Character.find({ _id: { $in: allIds } }).select('name currentClass resonance score armor armorPenetration power resistance memberStatus').lean();
   chars.sort((a, b) => {
     const ra = roleOrder[String(a._id)] ?? 2;
     const rb = roleOrder[String(b._id)] ?? 2;
