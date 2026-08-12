@@ -334,6 +334,55 @@ router.post('/:id/sync', upload.single('file'), async (req: Request, res: Respon
   }
 });
 
+// ── Change member role (officer ↔ member, or promote to leader) ───────────────
+router.patch('/:id/members/:memberId/role', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { role } = req.body as { role?: string };
+    if (!role || !['leader', 'officer', 'member'].includes(role)) {
+      res.status(400).json({ message: 'Rol inválido. Use "leader", "officer" o "member".' }); return;
+    }
+
+    const clan = await Clan.findById(req.params.id);
+    if (!clan) { res.status(404).json({ message: 'Clan not found' }); return; }
+
+    const memberId = String(req.params.memberId);
+    const leaderId = clan.leader ? String(clan.leader) : null;
+
+    if (role === 'leader') {
+      if (leaderId === memberId) { res.status(200).json({ ok: true }); return; }
+      // Remove from officer/member
+      clan.officer = clan.officer.filter(o => String(o) !== memberId);
+      clan.member  = clan.member.filter(m => String(m) !== memberId);
+      // Previous leader → member (if not already elsewhere)
+      if (leaderId) {
+        const inMember  = clan.member.some(m => String(m) === leaderId);
+        const inOfficer = clan.officer.some(o => String(o) === leaderId);
+        if (!inMember && !inOfficer) clan.member.push(clan.leader!);
+      }
+      clan.leader = new Types.ObjectId(memberId) as unknown as typeof clan.leader;
+      await clan.save();
+      await Character.findByIdAndUpdate(memberId, { clan: clan._id });
+    } else if (role === 'officer') {
+      if (memberId === leaderId) { res.status(400).json({ message: 'El líder no puede cambiar de rol aquí.' }); return; }
+      clan.member  = clan.member.filter(m => String(m) !== memberId);
+      if (!clan.officer.some(o => String(o) === memberId)) {
+        clan.officer.push(new Types.ObjectId(memberId) as unknown as typeof clan.officer[number]);
+      }
+      await clan.save();
+    } else {
+      // member
+      if (memberId === leaderId) { res.status(400).json({ message: 'El líder no puede cambiar de rol aquí.' }); return; }
+      clan.officer = clan.officer.filter(o => String(o) !== memberId);
+      if (!clan.member.some(m => String(m) === memberId)) {
+        clan.member.push(new Types.ObjectId(memberId) as unknown as typeof clan.member[number]);
+      }
+      await clan.save();
+    }
+
+    res.status(200).json({ ok: true });
+  } catch { res.status(500).json({ error: message.user.error }); }
+});
+
 router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
     const clan = await Clan.findById(req.params.id).select('leader officer member');
