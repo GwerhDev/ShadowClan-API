@@ -17,13 +17,14 @@ import clanCreationRequests       from './clan-creation-requests';
 import clanClaimRequests          from './clan-claim-requests';
 import userActivations            from './user-activations';
 
-const superAdminOnly = authorizeRoles([roles.superAdmin]);
+const superAdminOnly  = authorizeRoles([roles.superAdmin]);
+const adminOrAbove    = authorizeRoles([roles.admin, roles.superAdmin]);
 
 const router = Router();
 
 router.use('/overview',                       overview);
 router.use('/users',           superAdminOnly, users);
-router.use('/clans',           superAdminOnly, clans);
+router.use('/clans',           adminOrAbove,   clans);
 router.use('/warbands',                        warbands);
 router.use('/characters',      superAdminOnly, characters);
 router.use('/shadow-wars',                     shadowWars);
