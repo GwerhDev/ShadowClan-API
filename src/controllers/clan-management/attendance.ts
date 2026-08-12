@@ -133,6 +133,51 @@ router.get('/members-summary', async (req: Request, res: Response): Promise<void
   } catch { res.status(500).json({ error: message.user.error }); }
 });
 
+// ── Attendance summary for a single member, with 30/60/90/último ciclo ─────
+router.get('/member/:characterId/summary', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const clanId = await resolveClanRead(req.user!, req.query.characterId as string);
+    if (clanId === false) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
+    if (!clanId) { res.status(400).json({ message: 'characterId requerido.' }); return; }
+
+    const targetId = req.params.characterId;
+    const target = await Character.findById(targetId).select('clan');
+    if (!target || String(target.clan) !== String(clanId)) {
+      res.status(403).json({ message: message.admin.permissionDenied }); return;
+    }
+
+    const range = (req.query.range as string) ?? '30';
+    const latestCycle = await Cycle.findOne({ clan: clanId, activityType: 'shadow_war' }).sort({ startDate: -1 });
+
+    let since: Date | null, until: Date | null;
+    if (range === 'cycle') {
+      since = latestCycle ? latestCycle.startDate : null;
+      until = latestCycle ? (latestCycle.endDate ?? new Date()) : null;
+    } else {
+      const days = parseInt(range, 10) || 30;
+      until = new Date();
+      since = new Date();
+      since.setDate(until.getDate() - days);
+    }
+
+    const shadowWars = since && until
+      ? await ShadowWar.find({ clan: clanId, date: { $gte: since, $lte: until } }).select('_id')
+      : [];
+    const swIds = shadowWars.map(sw => sw._id);
+    const totalActivities = swIds.length;
+
+    const records = swIds.length
+      ? await Attendance.find({ shadowWar: { $in: swIds }, character: targetId }).select('attended')
+      : [];
+    const attended = records.filter(r => r.attended).length;
+    const missed   = records.filter(r => !r.attended).length;
+    const unmarked = totalActivities - records.length;
+    const percentage = totalActivities ? Math.round((attended / totalActivities) * 100) : 0;
+
+    res.status(200).json({ range, hasCycle: !!latestCycle, totalActivities, attended, missed, unmarked, percentage });
+  } catch { res.status(500).json({ error: message.user.error }); }
+});
+
 // ── Attendance for a single Shadow War ──────────────────────────────────────
 
 router.get('/shadow-war/:shadowWarId', async (req: Request, res: Response): Promise<void> => {
