@@ -101,6 +101,7 @@ router.get('/overview', async (req: Request, res: Response): Promise<void> => {
       since,
       until,
       hasCycle: !!latestCycle,
+      cycleIsOpen: !!latestCycle && !latestCycle.endDate,
       cycleUsed,
       ...summary,
     });

@@ -91,10 +91,11 @@ router.get('/members-summary', async (req: Request, res: Response): Promise<void
   try {
     const clanId = await resolveClanRead(req.user!, req.query.characterId as string);
     if (clanId === false) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
-    if (!clanId) { res.status(200).json({ hasCycle: false, data: {} }); return; }
+    if (!clanId) { res.status(200).json({ hasCycle: false, cycleIsOpen: false, data: {} }); return; }
 
     const latestCycle = await Cycle.findOne({ clan: clanId, activityType: 'shadow_war' }).sort({ startDate: -1 });
-    const hasCycle = !!latestCycle;
+    const hasCycle    = !!latestCycle;
+    const cycleIsOpen = !!latestCycle && !latestCycle.endDate;
 
     const range = (req.query.range as string) ?? '30';
     let since: Date | null, until: Date | null;
@@ -109,13 +110,13 @@ router.get('/members-summary', async (req: Request, res: Response): Promise<void
     }
 
     const clan = await Clan.findById(clanId).select('leader officer member');
-    if (!clan) { res.status(200).json({ hasCycle, data: {} }); return; }
+    if (!clan) { res.status(200).json({ hasCycle, cycleIsOpen, data: {} }); return; }
     const allIds = [
       ...(clan.leader ? [String(clan.leader)] : []),
       ...(clan.officer ?? []).map(String),
       ...(clan.member  ?? []).map(String),
     ];
-    if (!allIds.length) { res.status(200).json({ hasCycle, data: {} }); return; }
+    if (!allIds.length) { res.status(200).json({ hasCycle, cycleIsOpen, data: {} }); return; }
 
     const shadowWars = since && until
       ? await ShadowWar.find({ clan: clanId, completed: true, date: { $gte: since, $lte: until } }).select('_id')
@@ -127,7 +128,7 @@ router.get('/members-summary', async (req: Request, res: Response): Promise<void
 
     if (!swIds.length) {
       for (const id of allIds) data[id] = { percentage: 0, attended: 0, totalActivities: 0 };
-      res.status(200).json({ hasCycle, data }); return;
+      res.status(200).json({ hasCycle, cycleIsOpen, data }); return;
     }
 
     const records = await Attendance.find({
@@ -141,7 +142,7 @@ router.get('/members-summary', async (req: Request, res: Response): Promise<void
       data[id] = { percentage: totalActivities ? Math.round((attended / totalActivities) * 100) : 0, attended, totalActivities };
     }
 
-    res.status(200).json({ hasCycle, data });
+    res.status(200).json({ hasCycle, cycleIsOpen, data });
   } catch { res.status(500).json({ error: message.user.error }); }
 });
 
@@ -186,7 +187,12 @@ router.get('/member/:characterId/summary', async (req: Request, res: Response): 
     const unmarked = totalActivities - records.length;
     const percentage = totalActivities ? Math.round((attended / totalActivities) * 100) : 0;
 
-    res.status(200).json({ range, hasCycle: !!latestCycle, totalActivities, attended, missed, unmarked, percentage });
+    res.status(200).json({
+      range,
+      hasCycle: !!latestCycle,
+      cycleIsOpen: !!latestCycle && !latestCycle.endDate,
+      totalActivities, attended, missed, unmarked, percentage,
+    });
   } catch { res.status(500).json({ error: message.user.error }); }
 });
 

@@ -17,7 +17,7 @@ router.get('/character/:characterId', async (req: Request, res: Response): Promi
     const range = (req.query.range as string) ?? '30';
     const char = await Character.findById(characterId).select('clan');
     const empty = { totalActivities: 0, attended: 0, missed: 0, unmarked: 0, percentage: 0 };
-    if (!char?.clan) { res.status(200).json({ range, hasCycle: false, ...empty }); return; }
+    if (!char?.clan) { res.status(200).json({ range, hasCycle: false, cycleIsOpen: false, ...empty }); return; }
 
     const latestCycle = await Cycle.findOne({ clan: char.clan, activityType: 'shadow_war' }).sort({ startDate: -1 });
 
@@ -47,7 +47,12 @@ router.get('/character/:characterId', async (req: Request, res: Response): Promi
     const unmarked = totalActivities - records.length;
     const percentage = totalActivities ? Math.round((attended / totalActivities) * 100) : 0;
 
-    res.status(200).json({ range, since, until, hasCycle: !!latestCycle, totalActivities, attended, missed, unmarked, percentage });
+    res.status(200).json({
+      range, since, until,
+      hasCycle: !!latestCycle,
+      cycleIsOpen: !!latestCycle && !latestCycle.endDate,
+      totalActivities, attended, missed, unmarked, percentage,
+    });
   } catch { res.status(500).json({ error: 'Error al obtener la participación.' }); }
 });
 
