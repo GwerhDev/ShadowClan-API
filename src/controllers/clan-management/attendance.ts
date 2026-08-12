@@ -64,6 +64,53 @@ async function getClanRoster(clanId: Types.ObjectId | string) {
   return chars.map(c => ({ ...c, role: roleLabel[String(c._id)] ?? 'member' }));
 }
 
+// ── Attendance summary for all members of a clan (last N days) ──────────────
+router.get('/members-summary', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const clanId = await resolveClanRead(req.user!, req.query.characterId as string);
+    if (clanId === false) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
+    if (!clanId) { res.status(200).json({}); return; }
+
+    const days  = parseInt((req.query.range as string) ?? '30', 10) || 30;
+    const until = new Date();
+    const since = new Date();
+    since.setDate(until.getDate() - days);
+
+    const clan = await Clan.findById(clanId).select('leader officer member');
+    if (!clan) { res.status(200).json({}); return; }
+    const allIds = [
+      ...(clan.leader ? [String(clan.leader)] : []),
+      ...(clan.officer ?? []).map(String),
+      ...(clan.member  ?? []).map(String),
+    ];
+    if (!allIds.length) { res.status(200).json({}); return; }
+
+    const shadowWars = await ShadowWar.find({ clan: clanId, date: { $gte: since, $lte: until } }).select('_id');
+    const swIds = shadowWars.map(sw => sw._id);
+    const totalActivities = swIds.length;
+
+    const result: Record<string, { percentage: number; attended: number; totalActivities: number }> = {};
+
+    if (!swIds.length) {
+      for (const id of allIds) result[id] = { percentage: 0, attended: 0, totalActivities: 0 };
+      res.status(200).json(result); return;
+    }
+
+    const records = await Attendance.find({
+      shadowWar: { $in: swIds },
+      character: { $in: allIds },
+    }).select('character attended').lean();
+
+    for (const id of allIds) {
+      const memberRecs = records.filter(r => String(r.character) === id);
+      const attended   = memberRecs.filter(r => r.attended).length;
+      result[id] = { percentage: totalActivities ? Math.round((attended / totalActivities) * 100) : 0, attended, totalActivities };
+    }
+
+    res.status(200).json(result);
+  } catch { res.status(500).json({ error: message.user.error }); }
+});
+
 // ── Attendance for a single Shadow War ──────────────────────────────────────
 
 router.get('/shadow-war/:shadowWarId', async (req: Request, res: Response): Promise<void> => {
