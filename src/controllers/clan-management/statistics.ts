@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import ShadowWar from '../../models/ShadowWar';
 import AccursedTower from '../../models/AccursedTower';
-import AttendanceCycle from '../../models/AttendanceCycle';
+import Cycle from '../../models/Cycle';
 import Clan from '../../models/Clan';
 import Character from '../../models/Character';
 import { message } from '../../messages';
@@ -69,7 +69,7 @@ router.get('/overview', async (req: Request, res: Response): Promise<void> => {
     if (clanId === false) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
     if (!clanId) { res.status(400).json({ message: 'characterId requerido.' }); return; }
 
-    const latestCycle = await AttendanceCycle.findOne({ clan: clanId, activityType: type }).sort({ startDate: -1 });
+    const latestCycle = await Cycle.findOne({ clan: clanId, activityType: type }).sort({ startDate: -1 });
 
     let since: Date | null;
     let until: Date | null;
@@ -78,7 +78,7 @@ router.get('/overview', async (req: Request, res: Response): Promise<void> => {
     if (range === 'cycle') {
       if (latestCycle) {
         since = latestCycle.startDate;
-        until = latestCycle.endDate;
+        until = latestCycle.endDate ?? new Date();
         cycleUsed = latestCycle;
       } else {
         since = null;
@@ -152,7 +152,7 @@ router.get('/summary', async (req: Request, res: Response): Promise<void> => {
       nextAccursedTower = await AccursedTower.findOne(atBase).select('date enemyClan').populate('enemyClan', 'name').sort({ date: -1 });
     }
 
-    const cyclesTotal = await AttendanceCycle.countDocuments({ clan: clanId });
+    const cyclesTotal = await Cycle.countDocuments({ clan: clanId });
 
     res.status(200).json({
       memberCount,

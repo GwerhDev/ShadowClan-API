@@ -2,7 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import Character from '../models/Character';
 import ShadowWar from '../models/ShadowWar';
 import Attendance from '../models/Attendance';
-import AttendanceCycle from '../models/AttendanceCycle';
+import Cycle from '../models/Cycle';
 
 const router = Router();
 
@@ -19,13 +19,13 @@ router.get('/character/:characterId', async (req: Request, res: Response): Promi
     const empty = { totalActivities: 0, attended: 0, missed: 0, unmarked: 0, percentage: 0 };
     if (!char?.clan) { res.status(200).json({ range, hasCycle: false, ...empty }); return; }
 
-    const latestCycle = await AttendanceCycle.findOne({ clan: char.clan, activityType: 'shadow_war' }).sort({ startDate: -1 });
+    const latestCycle = await Cycle.findOne({ clan: char.clan, activityType: 'shadow_war' }).sort({ startDate: -1 });
 
     let since: Date | null;
     let until: Date | null;
     if (range === 'cycle') {
       since = latestCycle ? latestCycle.startDate : null;
-      until = latestCycle ? latestCycle.endDate   : null;
+      until = latestCycle ? (latestCycle.endDate ?? new Date()) : null;
     } else {
       const days = parseInt(range, 10) || 30;
       until = new Date();

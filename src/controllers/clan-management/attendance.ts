@@ -4,7 +4,7 @@ import ShadowWar from '../../models/ShadowWar';
 import Clan from '../../models/Clan';
 import Character from '../../models/Character';
 import Attendance from '../../models/Attendance';
-import AttendanceCycle from '../../models/AttendanceCycle';
+import Cycle from '../../models/Cycle';
 import { message } from '../../messages';
 import type { IUser } from '../../types';
 import { isSystemAdmin, getClanIdForCharacter, getClanForActiveChar } from '../../helpers/clanScope';
@@ -27,6 +27,28 @@ async function resolveClanRead(user: IUser, characterId: string | undefined): Pr
 function parseDayStart(d: string): Date { return new Date(d + 'T00:00:00.000Z'); }
 function parseDayEnd(d: string): Date { return new Date(d + 'T23:59:59.999Z'); }
 function toDateStr(d: Date): string { return d.toISOString().slice(0, 10); }
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const MIN_CYCLE_DAYS = 28; // 4 semanas
+const MAX_CYCLE_DAYS = 49; // 7 semanas
+
+// Cuenta de días inclusive entre dos 'YYYY-MM-DD' — ambos extremos cuentan
+// (un ciclo del día X al X+27 dura exactamente 28 días / 4 semanas).
+function inclusiveDayCount(startStr: string, endStr: string): number {
+  const start = parseDayStart(startStr).getTime();
+  const end   = parseDayStart(endStr).getTime();
+  return Math.round((end - start) / MS_PER_DAY) + 1;
+}
+
+// Solo llamar cuando hay un endDate real — un ciclo abierto no tiene restricción de duración.
+function validateCycleDates(startStr: string, endStr: string): string | null {
+  const days = inclusiveDayCount(startStr, endStr);
+  if (days < 1) return 'La fecha de fin no puede ser anterior a la fecha de inicio.';
+  if (days < MIN_CYCLE_DAYS || days > MAX_CYCLE_DAYS) {
+    return `La duración del ciclo debe ser de entre ${MIN_CYCLE_DAYS / 7} y ${MAX_CYCLE_DAYS / 7} semanas (actual: ${days} días).`;
+  }
+  return null;
+}
 
 // Monday (UTC) of the ISO week that contains dateStr ('YYYY-MM-DD').
 function mondayOf(dateStr: string): Date {
@@ -245,8 +267,8 @@ router.get('/cycles', async (req: Request, res: Response): Promise<void> => {
     if (activityType && CYCLE_ACTIVITY_TYPES.includes(activityType as typeof CYCLE_ACTIVITY_TYPES[number])) {
       filter.activityType = activityType;
     }
-    const total = await AttendanceCycle.countDocuments(filter);
-    const data  = await AttendanceCycle.find(filter).sort({ startDate: -1 }).skip((page - 1) * limit).limit(limit);
+    const total = await Cycle.countDocuments(filter);
+    const data  = await Cycle.find(filter).sort({ startDate: -1 }).skip((page - 1) * limit).limit(limit);
     res.status(200).json({ total, page, limit, pages: Math.ceil(total / limit), data });
   } catch { res.status(500).json({ error: message.user.error }); }
 });
@@ -257,17 +279,21 @@ router.post('/cycles', async (req: Request, res: Response): Promise<void> => {
     const clanId = await getClanForActiveChar(req.user!, characterId);
     if (clanId === false) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
     if (!clanId) { res.status(400).json({ message: 'characterId requerido.' }); return; }
-    if (!name?.trim() || !startDate || !endDate) { res.status(400).json({ message: 'name, startDate y endDate son requeridos.' }); return; }
+    if (!name?.trim() || !startDate) { res.status(400).json({ message: 'name y startDate son requeridos.' }); return; }
     if (!activityType || !CYCLE_ACTIVITY_TYPES.includes(activityType as typeof CYCLE_ACTIVITY_TYPES[number])) {
       res.status(400).json({ message: "activityType debe ser 'shadow_war' o 'accursed_tower'." }); return;
     }
+    if (endDate) {
+      const err = validateCycleDates(startDate, endDate);
+      if (err) { res.status(400).json({ message: err }); return; }
+    }
 
-    const cycle = await new AttendanceCycle({
+    const cycle = await new Cycle({
       clan: clanId,
       activityType,
       name: name.trim(),
       startDate: parseDayStart(startDate),
-      endDate: parseDayEnd(endDate),
+      endDate: endDate ? parseDayEnd(endDate) : undefined,
       createdBy: req.user!._id,
     }).save();
     res.status(201).json(cycle);
@@ -277,16 +303,27 @@ router.post('/cycles', async (req: Request, res: Response): Promise<void> => {
 router.patch('/cycles/:cycleId', async (req: Request, res: Response): Promise<void> => {
   try {
     const { characterId, name, startDate, endDate, activityType } = req.body as { characterId?: string; name?: string; startDate?: string; endDate?: string; activityType?: string };
-    const cycle = await AttendanceCycle.findById(req.params.cycleId);
+    const cycle = await Cycle.findById(req.params.cycleId);
     if (!cycle) { res.status(404).json({ message: 'Cycle not found' }); return; }
     if (!isSystemAdmin(req.user!)) {
       const clanId = await getClanForActiveChar(req.user!, characterId);
       if (clanId === false) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
       if (clanId && String(cycle.clan) !== String(clanId)) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
     }
+
+    // Validar contra el estado final fusionado (los campos no tocados conservan su valor actual),
+    // antes de mutar el doc — cubre cerrar un ciclo abierto y editar start/end de uno ya cerrado.
+    const finalStartStr   = startDate !== undefined ? startDate : toDateStr(cycle.startDate);
+    const willHaveEndDate = endDate !== undefined ? !!endDate : !!cycle.endDate;
+    if (willHaveEndDate) {
+      const finalEndStr = endDate !== undefined ? endDate : toDateStr(cycle.endDate as Date);
+      const err = validateCycleDates(finalStartStr, finalEndStr);
+      if (err) { res.status(400).json({ message: err }); return; }
+    }
+
     if (name !== undefined) cycle.name = name.trim();
     if (startDate !== undefined) cycle.startDate = parseDayStart(startDate);
-    if (endDate !== undefined) cycle.endDate = parseDayEnd(endDate);
+    if (endDate !== undefined && endDate) cycle.endDate = parseDayEnd(endDate);
     if (activityType !== undefined && CYCLE_ACTIVITY_TYPES.includes(activityType as typeof CYCLE_ACTIVITY_TYPES[number])) {
       cycle.activityType = activityType as typeof CYCLE_ACTIVITY_TYPES[number];
     }
@@ -297,14 +334,14 @@ router.patch('/cycles/:cycleId', async (req: Request, res: Response): Promise<vo
 
 router.delete('/cycles/:cycleId', async (req: Request, res: Response): Promise<void> => {
   try {
-    const cycle = await AttendanceCycle.findById(req.params.cycleId);
+    const cycle = await Cycle.findById(req.params.cycleId);
     if (!cycle) { res.status(404).json({ message: 'Cycle not found' }); return; }
     if (!isSystemAdmin(req.user!)) {
       const clanId = await getClanForActiveChar(req.user!, req.query.characterId as string);
       if (clanId === false) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
       if (clanId && String(cycle.clan) !== String(clanId)) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
     }
-    await AttendanceCycle.findByIdAndDelete(req.params.cycleId);
+    await Cycle.findByIdAndDelete(req.params.cycleId);
     res.status(200).json({ message: 'Cycle deleted' });
   } catch { res.status(500).json({ error: message.user.error }); }
 });
@@ -313,7 +350,7 @@ router.delete('/cycles/:cycleId', async (req: Request, res: Response): Promise<v
 
 router.get('/cycles/:cycleId', async (req: Request, res: Response): Promise<void> => {
   try {
-    const cycle = await AttendanceCycle.findById(req.params.cycleId);
+    const cycle = await Cycle.findById(req.params.cycleId);
     if (!cycle) { res.status(404).json({ message: 'Cycle not found' }); return; }
     if (!isSystemAdmin(req.user!)) {
       const clanId = await resolveClanRead(req.user!, req.query.characterId as string);
@@ -324,7 +361,8 @@ router.get('/cycles/:cycleId', async (req: Request, res: Response): Promise<void
       res.status(400).json({ message: 'El reporte de asistencia solo está disponible para ciclos de Guerra Sombría.' }); return;
     }
 
-    const shadowWars = await ShadowWar.find({ clan: cycle.clan, date: { $gte: cycle.startDate, $lte: cycle.endDate } })
+    const reportUntil = cycle.endDate ?? new Date();
+    const shadowWars = await ShadowWar.find({ clan: cycle.clan, date: { $gte: cycle.startDate, $lte: reportUntil } })
       .select('date enemyClan result').populate('enemyClan').sort({ date: 1 });
     const swIds = shadowWars.map(sw => sw._id);
     const totalActivities = shadowWars.length;
