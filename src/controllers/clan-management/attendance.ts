@@ -173,7 +173,18 @@ router.get('/week', async (req: Request, res: Response): Promise<void> => {
     const refDate = (req.query.date as string) || toDateStr(new Date());
     const monday  = mondayOf(refDate);
 
-    const roster = await getClanRoster(clanId);
+    const { q, page: rawPage, limit: rawLimit } = req.query as Record<string, string>;
+    const page  = Math.max(1, parseInt(rawPage  ?? '1',  10));
+    const limit = Math.min(50, Math.max(1, parseInt(rawLimit ?? '20', 10)));
+
+    let roster = await getClanRoster(clanId);
+    if (q?.trim()) {
+      const needle = q.trim().toLowerCase();
+      roster = roster.filter(m => m.name.toLowerCase().includes(needle));
+    }
+    const total      = roster.length;
+    const pageRoster = roster.slice((page - 1) * limit, page * limit);
+
     const days: Array<{ key: string; label: string; date: string; shadowWar: unknown }> = [];
     const attendanceByDay: Record<string, Map<string, boolean>> = {};
 
@@ -199,7 +210,7 @@ router.get('/week', async (req: Request, res: Response): Promise<void> => {
       });
     }
 
-    const members = roster.map(m => ({
+    const members = pageRoster.map(m => ({
       ...m,
       attendance: Object.fromEntries(WEEK_DAYS.map(wd => {
         const map = attendanceByDay[wd.key];
@@ -207,7 +218,15 @@ router.get('/week', async (req: Request, res: Response): Promise<void> => {
       })),
     }));
 
-    res.status(200).json({ weekStart: toDateStr(monday), days, members });
+    res.status(200).json({
+      weekStart: toDateStr(monday),
+      days,
+      members,
+      total,
+      page,
+      limit,
+      hasMore: page * limit < total,
+    });
   } catch { res.status(500).json({ error: message.user.error }); }
 });
 
