@@ -6,6 +6,8 @@ import Clan from '../../models/Clan';
 import Character from '../../models/Character';
 import { message } from '../../messages';
 import { calcScore } from '../../helpers/score';
+import ShadowWar from '../../models/ShadowWar';
+import Attendance from '../../models/Attendance';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
@@ -34,6 +36,52 @@ function escapeRegex(s: string): string {
 function num(v: unknown): number | undefined {
   const n = Number(v);
   return isNaN(n) || v === '' || v === null || v === undefined ? undefined : n;
+}
+
+// ── Attendance import helpers ─────────────────────────────────────────────────
+const MONTH_MAP_ADMIN: Record<string, number> = {
+  ene:1,feb:2,mar:3,abr:4,may:5,jun:6,jul:7,ago:8,sep:9,oct:10,nov:11,dic:12
+};
+const NON_DATE_COLS_ADMIN = new Set(['Rank','Jugador','Armadura','Penetracion','Potencia','Resistencia','Resonancia','Score','Clase','Whatsapp','Observaciones','Asist']);
+
+function parseDateColAdmin(col: string, year: number): string | null {
+  const m = col.match(/^(\d{1,2})([a-z]+)$/i);
+  if (!m) return null;
+  const month = MONTH_MAP_ADMIN[m[2].toLowerCase()];
+  if (!month) return null;
+  const day = parseInt(m[1], 10);
+  return `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+}
+
+async function buildSwByDateAdmin(rows: Record<string, unknown>[], clanId: unknown): Promise<Map<string, any>> {
+  const year    = new Date().getFullYear();
+  const allCols = rows.length ? Object.keys(rows[0]) : [];
+  const dateCols = allCols.filter(c => !NON_DATE_COLS_ADMIN.has(c) && parseDateColAdmin(c, year) !== null);
+  const map     = new Map<string, any>();
+  for (const col of dateCols) {
+    const dateStr = parseDateColAdmin(col, year)!;
+    const start   = new Date(dateStr + 'T00:00:00.000Z');
+    const end     = new Date(dateStr + 'T23:59:59.999Z');
+    const sw      = await ShadowWar.findOne({ clan: clanId, date: { $gte: start, $lte: end } }).select('_id date clan');
+    map.set(col, sw ?? null);
+  }
+  return map;
+}
+
+async function upsertAttendanceAdmin(
+  row: Record<string, unknown>,
+  characterId: unknown,
+  clanId: unknown,
+  swByDate: Map<string, any>,
+): Promise<void> {
+  for (const [col, sw] of swByDate) {
+    if (!sw || Number(row[col]) !== 1) continue;
+    await Attendance.findOneAndUpdate(
+      { shadowWar: sw._id, character: characterId },
+      { attended: true, clan: clanId, date: sw.date, activityType: 'shadow_war' },
+      { upsert: true },
+    );
+  }
 }
 
 const router = Router();
@@ -226,6 +274,7 @@ router.post('/:id/sync', upload.single('file'), async (req: Request, res: Respon
     type SyncResult = { name: string; status: 'created' | 'updated' };
     const results: SyncResult[]          = [];
     const newMemberIds: Types.ObjectId[] = [];
+    const swByDate = await buildSwByDateAdmin(rows, clan._id);
 
     for (const row of rows) {
       const rawName = String(row['Jugador'] ?? '').trim();
@@ -246,6 +295,7 @@ router.post('/:id/sync', upload.single('file'), async (req: Request, res: Respon
         const priv = await Character.findById(privilegedId);
         data.score = calcScore({ resonance: (data.resonance ?? priv?.resonance ?? 0) as number, armor: (data.armor ?? priv?.armor ?? 0) as number, armorPenetration: (data.armorPenetration ?? priv?.armorPenetration ?? 0) as number, power: (data.power ?? priv?.power ?? 0) as number, resistance: (data.resistance ?? priv?.resistance ?? 0) as number });
         await Character.findByIdAndUpdate(privilegedId, data);
+        await upsertAttendanceAdmin(row, privilegedId, clan._id, swByDate);
         results.push({ name: rawName, status: 'updated' });
         continue;
       }
@@ -262,6 +312,7 @@ router.post('/:id/sync', upload.single('file'), async (req: Request, res: Respon
         results.push({ name: rawName, status: 'updated' });
       }
 
+      await upsertAttendanceAdmin(row, char._id, clan._id, swByDate);
       newMemberIds.push(char._id as Types.ObjectId);
     }
 

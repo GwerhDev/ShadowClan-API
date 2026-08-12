@@ -9,6 +9,8 @@ import ClanInvitation from '../../models/ClanInvitation';
 import { message } from '../../messages';
 import type { IUser, IClan } from '../../types';
 import { calcScore } from '../../helpers/score';
+import ShadowWar from '../../models/ShadowWar';
+import Attendance from '../../models/Attendance';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
@@ -38,6 +40,52 @@ function escapeRegex(s: string): string {
 function num(v: unknown): number | undefined {
   const n = Number(v);
   return isNaN(n) || v === '' || v === null || v === undefined ? undefined : n;
+}
+
+// ── Attendance import helpers ─────────────────────────────────────────────────
+const MONTH_MAP: Record<string, number> = {
+  ene:1,feb:2,mar:3,abr:4,may:5,jun:6,jul:7,ago:8,sep:9,oct:10,nov:11,dic:12
+};
+const NON_DATE_COLS = new Set(['Rank','Jugador','Armadura','Penetracion','Potencia','Resistencia','Resonancia','Score','Clase','Whatsapp','Observaciones','Asist']);
+
+function parseDateCol(col: string, year: number): string | null {
+  const m = col.match(/^(\d{1,2})([a-z]+)$/i);
+  if (!m) return null;
+  const month = MONTH_MAP[m[2].toLowerCase()];
+  if (!month) return null;
+  const day = parseInt(m[1], 10);
+  return `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+}
+
+async function buildSwByDate(rows: Record<string, unknown>[], clanId: unknown): Promise<Map<string, any>> {
+  const year    = new Date().getFullYear();
+  const allCols = rows.length ? Object.keys(rows[0]) : [];
+  const dateCols = allCols.filter(c => !NON_DATE_COLS.has(c) && parseDateCol(c, year) !== null);
+  const map     = new Map<string, any>();
+  for (const col of dateCols) {
+    const dateStr = parseDateCol(col, year)!;
+    const start   = new Date(dateStr + 'T00:00:00.000Z');
+    const end     = new Date(dateStr + 'T23:59:59.999Z');
+    const sw      = await ShadowWar.findOne({ clan: clanId, date: { $gte: start, $lte: end } }).select('_id date clan');
+    map.set(col, sw ?? null);
+  }
+  return map;
+}
+
+async function upsertAttendance(
+  row: Record<string, unknown>,
+  characterId: unknown,
+  clanId: unknown,
+  swByDate: Map<string, any>,
+): Promise<void> {
+  for (const [col, sw] of swByDate) {
+    if (!sw || Number(row[col]) !== 1) continue;
+    await Attendance.findOneAndUpdate(
+      { shadowWar: sw._id, character: characterId },
+      { attended: true, clan: clanId, date: sw.date, activityType: 'shadow_war' },
+      { upsert: true },
+    );
+  }
 }
 
 const router = Router();
@@ -312,6 +360,7 @@ router.post('/:clanId/bulk-import', upload.single('file'), async (req: Request, 
 
     type ImportResult = { name: string; status: 'created' | 'updated' | 'invited' | 'skipped'; reason?: string };
     const results: ImportResult[] = [];
+    const swByDate = await buildSwByDate(rows, clan._id);
 
     for (const row of rows) {
       const rawName = String(row['Jugador'] ?? '').trim();
@@ -340,6 +389,7 @@ router.post('/:clanId/bulk-import', upload.single('file'), async (req: Request, 
         const char = await new Character({ name: rawName, ...update, status: 'unclaimed' }).save();
         clan.member.push(char._id as Types.ObjectId);
         await clan.save();
+        await upsertAttendance(row, char._id, clan._id, swByDate);
         results.push({ name: rawName, status: 'created' });
         continue;
       }
@@ -383,6 +433,7 @@ router.post('/:clanId/bulk-import', upload.single('file'), async (req: Request, 
       // Character is unclaimed or in this clan → update stats
       update.score = calcScore({ resonance: (update.resonance ?? existing.resonance ?? 0) as number, armor: (update.armor ?? existing.armor ?? 0) as number, armorPenetration: (update.armorPenetration ?? existing.armorPenetration ?? 0) as number, power: (update.power ?? existing.power ?? 0) as number, resistance: (update.resistance ?? existing.resistance ?? 0) as number });
       await Character.findByIdAndUpdate(existing._id, update);
+      await upsertAttendance(row, existing._id, clan._id, swByDate);
 
       // Add to clan if not already a member
       if (!inThisClan) {
@@ -441,6 +492,7 @@ router.post('/:clanId/sync', upload.single('file'), async (req: Request, res: Re
     type SyncResult = { name: string; status: 'created' | 'updated' };
     const results: SyncResult[]          = [];
     const newMemberIds: Types.ObjectId[] = [];
+    const swByDate = await buildSwByDate(rows, clan._id);
 
     for (const row of rows) {
       const rawName = String(row['Jugador'] ?? '').trim();
@@ -462,6 +514,7 @@ router.post('/:clanId/sync', upload.single('file'), async (req: Request, res: Re
         const priv = await Character.findById(privilegedId);
         data.score = calcScore({ resonance: (data.resonance ?? priv?.resonance ?? 0) as number, armor: (data.armor ?? priv?.armor ?? 0) as number, armorPenetration: (data.armorPenetration ?? priv?.armorPenetration ?? 0) as number, power: (data.power ?? priv?.power ?? 0) as number, resistance: (data.resistance ?? priv?.resistance ?? 0) as number });
         await Character.findByIdAndUpdate(privilegedId, data);
+        await upsertAttendance(row, privilegedId, clan._id, swByDate);
         results.push({ name: rawName, status: 'updated' });
         continue;
       }
@@ -478,6 +531,7 @@ router.post('/:clanId/sync', upload.single('file'), async (req: Request, res: Re
         results.push({ name: rawName, status: 'updated' });
       }
 
+      await upsertAttendance(row, char._id, clan._id, swByDate);
       newMemberIds.push(char._id as Types.ObjectId);
     }
 
