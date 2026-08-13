@@ -10,16 +10,19 @@ const router = Router();
 
 router.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { q, page, limit } = req.query as { q?: string; page?: string; limit?: string };
+    const { q, page, limit, ids } = req.query as { q?: string; page?: string; limit?: string; ids?: string };
     const pageNum  = Math.max(1, parseInt(page  ?? '1',  10));
-    const limitNum = Math.min(100, Math.max(1, parseInt(limit ?? '30', 10)));
-    const query = q?.trim() ? { name: { $regex: q.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' } } : {};
+    const idsArr   = ids?.trim() ? ids.split(',').map((id) => id.trim()).filter(Boolean) : null;
+    const limitNum = idsArr ? Math.min(100, Math.max(1, idsArr.length)) : Math.min(100, Math.max(1, parseInt(limit ?? '30', 10)));
+    const query = idsArr
+      ? { _id: { $in: idsArr } }
+      : q?.trim() ? { name: { $regex: q.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' } } : {};
     const [chars, total] = await Promise.all([
       Character.find(query).populate('clan', 'name').sort({ name: 1 })
-        .limit(limitNum).skip((pageNum - 1) * limitNum).lean(),
+        .limit(limitNum).skip(idsArr ? 0 : (pageNum - 1) * limitNum).lean(),
       Character.countDocuments(query),
     ]);
-    res.status(200).json({ data: chars, total, page: pageNum, limit: limitNum, hasMore: pageNum * limitNum < total });
+    res.status(200).json({ data: chars, total, page: pageNum, limit: limitNum, hasMore: idsArr ? false : pageNum * limitNum < total });
   } catch { res.status(500).json({ error: message.member.error }); }
 });
 
