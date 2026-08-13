@@ -103,7 +103,16 @@ export interface IAttendance extends Document {
 
 export interface ICycle extends Document {
   clan: Types.ObjectId;
-  activityType: 'shadow_war' | 'accursed_tower';
+  activityType: 'shadow' | 'immortal';
+  startDate: Date;
+  endDate?: Date;
+  createdBy?: Types.ObjectId;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ISeason extends Document {
+  clan: Types.ObjectId;
   startDate: Date;
   endDate?: Date;
   createdBy?: Types.ObjectId;

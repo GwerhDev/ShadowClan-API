@@ -93,7 +93,7 @@ router.get('/members-summary', async (req: Request, res: Response): Promise<void
     if (clanId === false) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
     if (!clanId) { res.status(200).json({ hasCycle: false, cycleIsOpen: false, data: {} }); return; }
 
-    const latestCycle = await Cycle.findOne({ clan: clanId, activityType: 'shadow_war' }).sort({ startDate: -1 });
+    const latestCycle = await Cycle.findOne({ clan: clanId, activityType: 'shadow' }).sort({ startDate: -1 });
     const hasCycle    = !!latestCycle;
     const cycleIsOpen = !!latestCycle && !latestCycle.endDate;
 
@@ -128,7 +128,7 @@ router.get('/members-summary', async (req: Request, res: Response): Promise<void
 
     if (!swIds.length) {
       for (const id of allIds) data[id] = { percentage: 0, attended: 0, totalActivities: 0 };
-      res.status(200).json({ hasCycle, cycleIsOpen, data }); return;
+      res.status(200).json({ hasCycle, cycleIsOpen, clanPercentage: 0, data }); return;
     }
 
     const records = await Attendance.find({
@@ -142,7 +142,11 @@ router.get('/members-summary', async (req: Request, res: Response): Promise<void
       data[id] = { percentage: totalActivities ? Math.round((attended / totalActivities) * 100) : 0, attended, totalActivities };
     }
 
-    res.status(200).json({ hasCycle, cycleIsOpen, data });
+    const totalAttended = Object.values(data).reduce((sum, d) => sum + d.attended, 0);
+    const totalPossible = Object.values(data).reduce((sum, d) => sum + d.totalActivities, 0);
+    const clanPercentage = totalPossible ? Math.round((totalAttended / totalPossible) * 100) : 0;
+
+    res.status(200).json({ hasCycle, cycleIsOpen, clanPercentage, data });
   } catch { res.status(500).json({ error: message.user.error }); }
 });
 
@@ -160,7 +164,7 @@ router.get('/member/:characterId/summary', async (req: Request, res: Response): 
     }
 
     const range = (req.query.range as string) ?? '30';
-    const latestCycle = await Cycle.findOne({ clan: clanId, activityType: 'shadow_war' }).sort({ startDate: -1 });
+    const latestCycle = await Cycle.findOne({ clan: clanId, activityType: 'shadow' }).sort({ startDate: -1 });
 
     let since: Date | null, until: Date | null;
     if (range === 'cycle') {
@@ -317,7 +321,7 @@ router.get('/week', async (req: Request, res: Response): Promise<void> => {
 
 // ── Attendance cycles (rango de fechas para analizar participación) ────────
 
-const CYCLE_ACTIVITY_TYPES = ['shadow_war', 'accursed_tower'] as const;
+const CYCLE_ACTIVITY_TYPES = ['shadow', 'immortal'] as const;
 
 router.get('/cycles', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -344,7 +348,7 @@ router.post('/cycles', async (req: Request, res: Response): Promise<void> => {
     if (!clanId) { res.status(400).json({ message: 'characterId requerido.' }); return; }
     if (!startDate) { res.status(400).json({ message: 'startDate es requerido.' }); return; }
     if (!activityType || !CYCLE_ACTIVITY_TYPES.includes(activityType as typeof CYCLE_ACTIVITY_TYPES[number])) {
-      res.status(400).json({ message: "activityType debe ser 'shadow_war' o 'accursed_tower'." }); return;
+      res.status(400).json({ message: "activityType debe ser 'shadow' o 'immortal'." }); return;
     }
     if (endDate) {
       const err = validateCycleDates(startDate, endDate);
@@ -418,7 +422,7 @@ router.get('/cycles/:cycleId', async (req: Request, res: Response): Promise<void
       if (clanId === false) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
       if (clanId && String(cycle.clan) !== String(clanId)) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
     }
-    if (cycle.activityType !== 'shadow_war') {
+    if (cycle.activityType !== 'shadow') {
       res.status(400).json({ message: 'El reporte de asistencia solo está disponible para ciclos de Guerra Sombría.' }); return;
     }
 

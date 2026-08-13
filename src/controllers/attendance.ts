@@ -19,7 +19,7 @@ router.get('/character/:characterId', async (req: Request, res: Response): Promi
     const empty = { totalActivities: 0, attended: 0, missed: 0, unmarked: 0, percentage: 0 };
     if (!char?.clan) { res.status(200).json({ range, hasCycle: false, cycleIsOpen: false, ...empty }); return; }
 
-    const latestCycle = await Cycle.findOne({ clan: char.clan, activityType: 'shadow_war' }).sort({ startDate: -1 });
+    const latestCycle = await Cycle.findOne({ clan: char.clan, activityType: 'shadow' }).sort({ startDate: -1 });
 
     let since: Date | null;
     let until: Date | null;

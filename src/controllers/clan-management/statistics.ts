@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import ShadowWar from '../../models/ShadowWar';
 import AccursedTower from '../../models/AccursedTower';
 import Cycle from '../../models/Cycle';
+import Season from '../../models/Season';
 import Clan from '../../models/Clan';
 import Character from '../../models/Character';
 import { message } from '../../messages';
@@ -69,7 +70,11 @@ router.get('/overview', async (req: Request, res: Response): Promise<void> => {
     if (clanId === false) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
     if (!clanId) { res.status(400).json({ message: 'characterId requerido.' }); return; }
 
-    const latestCycle = await Cycle.findOne({ clan: clanId, activityType: type }).sort({ startDate: -1 });
+    // El Cycle model solo cubre 'shadow'/'immortal' — el "último período" de Torre Maldita
+    // vive en Season (ver Season.ts), no en Cycle.
+    const latestCycle = type === 'shadow_war'
+      ? await Cycle.findOne({ clan: clanId, activityType: 'shadow' }).sort({ startDate: -1 })
+      : await Season.findOne({ clan: clanId }).sort({ startDate: -1 });
 
     let since: Date | null;
     let until: Date | null;
