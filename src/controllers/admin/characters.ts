@@ -5,6 +5,7 @@ import Clan from '../../models/Clan';
 import { message } from '../../messages';
 import { characterConsts } from '../../misc/consts-models';
 import { calcScore } from '../../helpers/score';
+import { closeMembership } from '../../helpers/clanMembership';
 
 const router = Router();
 
@@ -80,8 +81,12 @@ router.patch('/:id/remove-clan', async (req: Request, res: Response): Promise<vo
     const { id } = req.params;
     const char = await Character.findById(id).populate('clan', 'name');
     if (!char) { res.status(404).json({ message: message.member.notfound }); return; }
-    const clanName = (char.clan as unknown as { name?: string } | undefined)?.name ?? null;
-    if (char.clan) await Clan.updateOne({ _id: char.clan }, { $pull: { member: char._id, officer: char._id } });
+    const clanDoc = char.clan as unknown as { _id?: unknown; name?: string } | undefined;
+    const clanName = clanDoc?.name ?? null;
+    if (clanDoc?._id) {
+      await Clan.updateOne({ _id: clanDoc._id }, { $pull: { member: char._id, officer: char._id } });
+      await closeMembership(char._id, clanDoc._id as string, { removedBy: req.user!._id });
+    }
     const updated = await Character.findByIdAndUpdate(id, { clan: null }, { new: true });
     if (clanName) {
       try {
@@ -100,7 +105,10 @@ router.patch('/:id/unclaim', async (req: Request, res: Response): Promise<void> 
     const char = await Character.findById(id);
     if (!char) { res.status(404).json({ message: message.member.notfound }); return; }
     await User.updateMany({ character: id }, { $pull: { character: id } });
-    if (char.clan) await Clan.updateOne({ _id: char.clan }, { $pull: { member: char._id, officer: char._id } });
+    if (char.clan) {
+      await Clan.updateOne({ _id: char.clan }, { $pull: { member: char._id, officer: char._id } });
+      await closeMembership(char._id, char.clan, { removedBy: req.user!._id });
+    }
     const updated = await Character.findByIdAndUpdate(id, { status: 'unclaimed', clan: null }, { new: true });
     res.status(200).json({ message: 'Personaje desvinculado', character: updated });
   } catch { res.status(500).json({ error: message.member.error }); }
@@ -108,8 +116,16 @@ router.patch('/:id/unclaim', async (req: Request, res: Response): Promise<void> 
 
 router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
-    const deleted = await Character.findByIdAndDelete(req.params.id);
-    if (!deleted) { res.status(404).json({ message: message.member.notfound }); return; }
+    const char = await Character.findById(req.params.id);
+    if (!char) { res.status(404).json({ message: message.member.notfound }); return; }
+    // Borrar el personaje no debe dejar referencias colgantes en el clan (roster,
+    // exmiembros) — se limpia el clan y se cierra la membresía abierta, si había una,
+    // antes de borrar el documento.
+    if (char.clan) {
+      await Clan.updateOne({ _id: char.clan }, { $pull: { member: char._id, officer: char._id } });
+      await closeMembership(char._id, char.clan, { removedBy: req.user!._id });
+    }
+    await Character.findByIdAndDelete(req.params.id);
     res.status(200).json({ message: message.character.delete.success });
   } catch { res.status(500).json({ error: message.member.error }); }
 });

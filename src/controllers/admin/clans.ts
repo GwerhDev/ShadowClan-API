@@ -8,6 +8,7 @@ import { message } from '../../messages';
 import { calcScore } from '../../helpers/score';
 import ShadowWar from '../../models/ShadowWar';
 import Attendance from '../../models/Attendance';
+import { openMembership, closeMembership, updateOpenRole } from '../../helpers/clanMembership';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
@@ -313,6 +314,7 @@ router.post('/:id/sync', upload.single('file'), async (req: Request, res: Respon
       }
 
       await upsertAttendanceAdmin(row, char._id, clan._id, swByDate);
+      await openMembership(char._id, clan._id, 'member');
       newMemberIds.push(char._id as Types.ObjectId);
     }
 
@@ -323,6 +325,7 @@ router.post('/:id/sync', upload.single('file'), async (req: Request, res: Respon
     );
     if (removedIds.length) {
       await Character.updateMany({ _id: { $in: removedIds } }, { $unset: { clan: '' } });
+      await Promise.all(removedIds.map(id => closeMembership(id, clan._id)));
     }
 
     clan.member = newMemberIds;
@@ -378,6 +381,7 @@ router.patch('/:id/members/:memberId/role', async (req: Request, res: Response):
       }
       await clan.save();
     }
+    await updateOpenRole(memberId, clan._id, role as 'leader' | 'officer' | 'member');
 
     res.status(200).json({ ok: true });
   } catch { res.status(500).json({ error: message.user.error }); }
@@ -400,6 +404,7 @@ router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
     // Unset clan from all characters
     if (allCharIds.length) {
       await Character.updateMany({ _id: { $in: allCharIds } }, { $unset: { clan: '' } });
+      await Promise.all(allCharIds.map(id => closeMembership(id, String(req.params.id))));
     }
 
     // Notify connected users via socket

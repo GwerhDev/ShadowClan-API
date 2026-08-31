@@ -5,6 +5,7 @@ import Character from '../models/Character';
 import { message } from '../messages';
 import { getUser } from '../helpers/getUser';
 import { calcScore } from '../helpers/score';
+import { openMembership, closeMembership } from '../helpers/clanMembership';
 
 const router = Router();
 
@@ -74,6 +75,7 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
         await clan.save();
         await Character.findByIdAndUpdate(invitation.character, { clan: invitation.clan });
       }
+      await openMembership(invitation.character, invitation.clan, invitation.role === 'officer' ? 'officer' : 'member');
 
       const charUpdate: Record<string, unknown> = {};
       if (invitation.proposedClass     != null) charUpdate.currentClass = invitation.proposedClass || null;
@@ -99,6 +101,9 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
         clan.member  = clan.member.filter(m => String(m) !== charIdStr);
         await clan.save();
         await Character.findByIdAndUpdate(invitation.character, { clan: null });
+        // No-op si el personaje nunca llegó a tener un registro abierto (lo normal:
+        // una invitación solo se crea cuando el personaje no está en el clan todavía).
+        await closeMembership(invitation.character, invitation.clan, { backfill: false });
       }
       invitation.status = 'rejected';
     }

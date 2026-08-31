@@ -5,6 +5,8 @@ import Character from '../models/Character';
 import User from '../models/User';
 import { message } from '../messages';
 import { getUser } from '../helpers/getUser';
+import { openMembership } from '../helpers/clanMembership';
+import ClanMembership from '../models/ClanMembership';
 
 const router = Router();
 
@@ -88,9 +90,30 @@ router.get('/manage', async (req: Request, res: Response): Promise<void> => {
       .populate('user', 'battletag')
       .populate('character', 'name currentClass resonance')
       .populate('clan', 'name')
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .lean();
 
-    res.status(200).json(requests);
+    // Historial de clanes de cada personaje solicitante, para que el líder/oficial
+    // pueda ver por dónde ha pasado antes de aceptar o rechazar.
+    const requestCharIds = requests.map(r => (r.character as { _id?: unknown } | null)?._id).filter(Boolean);
+    const historyDocs = requestCharIds.length
+      ? await ClanMembership.find({ character: { $in: requestCharIds } }).sort({ joinedAt: -1 }).populate('clan', 'name').lean()
+      : [];
+    const historyByChar = new Map<string, typeof historyDocs>();
+    for (const h of historyDocs) {
+      const key = String(h.character);
+      if (!historyByChar.has(key)) historyByChar.set(key, []);
+      historyByChar.get(key)!.push(h);
+    }
+
+    const withHistory = requests.map(r => ({
+      ...r,
+      character: r.character
+        ? { ...r.character, clanHistory: (historyByChar.get(String((r.character as { _id?: unknown })._id)) ?? []).slice(0, 5) }
+        : r.character,
+    }));
+
+    res.status(200).json(withHistory);
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: message.user.error });
@@ -165,6 +188,7 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
     if (action === 'accept') {
       await Clan.updateOne({ _id: request.clan }, { $addToSet: { member: request.character } });
       await Character.updateOne({ _id: request.character }, { clan: request.clan });
+      await openMembership(request.character, request.clan, 'member');
       request.status = 'accepted';
     } else {
       request.status = 'rejected';

@@ -5,6 +5,7 @@ import { decodeToken } from '../integrations/jwt';
 import { message } from '../messages';
 import { characterConsts } from '../misc/consts-models';
 import { calcScore } from '../helpers/score';
+import ClanMembership from '../models/ClanMembership';
 
 const router = Router();
 
@@ -101,9 +102,24 @@ router.put('/:id', async (req: Request, res: Response): Promise<void> => {
 
 router.get('/:name', async (req: Request, res: Response): Promise<void> => {
   try {
-    const characters = await Character.find({ name: { $regex: req.params.name, $options: 'i' } }).populate('clan');
+    const characters = await Character.find({ name: { $regex: req.params.name, $options: 'i' } }).populate('clan').lean();
     if (characters.length > 0) {
-      res.status(200).json({ found: true, characters });
+      // Historial de clanes de cada resultado, para mostrarlo al agregar un
+      // personaje al clan desde el buscador.
+      const charIds = characters.map(c => c._id);
+      const historyDocs = await ClanMembership.find({ character: { $in: charIds } })
+        .sort({ joinedAt: -1 }).populate('clan', 'name').lean();
+      const historyByChar = new Map<string, typeof historyDocs>();
+      for (const h of historyDocs) {
+        const key = String(h.character);
+        if (!historyByChar.has(key)) historyByChar.set(key, []);
+        historyByChar.get(key)!.push(h);
+      }
+      const withHistory = characters.map(c => ({
+        ...c,
+        clanHistory: (historyByChar.get(String(c._id)) ?? []).slice(0, 5),
+      }));
+      res.status(200).json({ found: true, characters: withHistory });
     } else {
       res.status(404).json({ found: false });
     }

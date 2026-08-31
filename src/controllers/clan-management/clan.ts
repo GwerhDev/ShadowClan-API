@@ -11,6 +11,8 @@ import type { IUser, IClan } from '../../types';
 import { calcScore } from '../../helpers/score';
 import ShadowWar from '../../models/ShadowWar';
 import Attendance from '../../models/Attendance';
+import { openMembership, closeMembership, updateOpenRole } from '../../helpers/clanMembership';
+import ClanMembership from '../../models/ClanMembership';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
@@ -120,6 +122,7 @@ router.post('/:clanId/members', async (req: Request, res: Response): Promise<voi
     if (!char) { res.status(404).json({ message: 'Character not found' }); return; }
     const alreadyIn = [String(clan.leader), ...clan.officer.map(String), ...clan.member.map(String)].includes(String(characterId));
     if (!alreadyIn) { clan.member.push(char._id); char.clan = clan._id; await Promise.all([clan.save(), char.save()]); }
+    await openMembership(char._id, clan._id, 'member');
     res.status(200).json(await populateClan(Clan.findById(req.params.clanId)));
   } catch { res.status(500).json({ error: message.user.error }); }
 });
@@ -146,6 +149,7 @@ router.post('/:clanId/leave', async (req: Request, res: Response): Promise<void>
         clan.status = 'unclaimed' as typeof clan.status;
         await clan.save();
         await Character.findByIdAndUpdate(characterId, { $unset: { clan: '' } });
+        await closeMembership(characterId, clanId);
         res.status(200).json({ message: 'Has abandonado el clan. El clan queda sin reclamar.' }); return;
       }
       res.status(400).json({ message: 'El líder no puede abandonar el clan mientras haya otros miembros. Transfiere el liderazgo primero.' }); return;
@@ -155,6 +159,7 @@ router.post('/:clanId/leave', async (req: Request, res: Response): Promise<void>
     clan.member  = clan.member.filter(m => String(m) !== characterId);
     await clan.save();
     await Character.findByIdAndUpdate(characterId, { $unset: { clan: '' } });
+    await closeMembership(characterId, clanId);
 
     res.status(200).json({ message: 'Has abandonado el clan.' });
   } catch { res.status(500).json({ error: message.user.error }); }
@@ -163,6 +168,7 @@ router.post('/:clanId/leave', async (req: Request, res: Response): Promise<void>
 router.delete('/:clanId/members/:characterId', async (req: Request, res: Response): Promise<void> => {
   try {
     const clanId = String(req.params.clanId); const characterId = String(req.params.characterId);
+    const { reason } = req.body as { reason?: string };
     const clan = await Clan.findById(clanId);
     if (!clan) { res.status(404).json({ message: 'Clan not found' }); return; }
     if (!charIsOfficerOrLeader(clan, req.user!)) { res.status(403).json({ message: 'Se requiere ser líder u oficial del clan' }); return; }
@@ -173,6 +179,11 @@ router.delete('/:clanId/members/:characterId', async (req: Request, res: Respons
     clan.officer = clan.officer.filter(o => String(o) !== characterId);
     await clan.save();
     await Character.findByIdAndUpdate(characterId, { $unset: { clan: '' } });
+    await closeMembership(characterId, clanId, {
+      expulsionReason: reason?.trim() || undefined,
+      removedBy: req.user!._id,
+      role: targetIsOfficer ? 'officer' : 'member',
+    });
     try {
       const { getIO } = await import('../../socket');
       const owner = await User.findOne({ character: characterId }).select('_id');
@@ -190,6 +201,7 @@ router.post('/:clanId/characters', async (req: Request, res: Response): Promise<
     if (!charIsOfficerOrLeader(clan, req.user!)) { res.status(403).json({ message: 'Se requiere ser líder u oficial del clan' }); return; }
     const char = await new Character({ name, resonance, currentClass, clan: req.params.clanId, status: 'unclaimed' }).save();
     clan.member.push(char._id); await clan.save();
+    await openMembership(char._id, clan._id, 'member');
     res.status(201).json(await populateClan(Clan.findById(req.params.clanId)));
   } catch { res.status(500).json({ error: message.user.error }); }
 });
@@ -241,6 +253,7 @@ router.patch('/:clanId/members/:characterId/role', async (req: Request, res: Res
     if (role === 'officer') clan.officer.push(characterId as unknown as typeof clan.officer[0]);
     else                    clan.member.push(characterId as unknown as typeof clan.member[0]);
     await clan.save();
+    await updateOpenRole(characterId, clanId, role as 'officer' | 'member');
     res.status(200).json(await populateClan(Clan.findById(clanId)));
   } catch { res.status(500).json({ error: message.user.error }); }
 });
@@ -303,44 +316,69 @@ router.delete('/:clanId/invitations/:invitationId', async (req: Request, res: Re
 });
 
 // ── Paginated members list ────────────────────────────────────────────────────
+// status: 'active' (solo miembros actuales) | 'ex' (solo exmiembros) | 'all' (default,
+// activos primero y exmiembros al final). Los datos de exmiembros (motivo, quién lo
+// sacó) solo se incluyen si quien pregunta es líder/oficial — si no, 'all' degrada a
+// solo activos en silencio (no rompe la vista para un miembro común) y 'ex' devuelve 403.
 router.get('/:clanId/members', async (req: Request, res: Response): Promise<void> => {
   try {
     const clan = await Clan.findById(req.params.clanId).select('leader officer member');
     if (!clan) { res.status(404).json({ message: 'Clan not found' }); return; }
 
-    const { q, page: rawPage, limit: rawLimit } = req.query as Record<string, string>;
-    const page  = Math.max(1, parseInt(rawPage  ?? '1',  10));
-    const limit = Math.min(50, Math.max(1, parseInt(rawLimit ?? '20', 10)));
+    const { q, page: rawPage, limit: rawLimit, status: rawStatus } = req.query as Record<string, string>;
+    const page   = Math.max(1, parseInt(rawPage  ?? '1',  10));
+    const limit  = Math.min(50, Math.max(1, parseInt(rawLimit ?? '20', 10)));
+    const status = (['active', 'ex', 'all'].includes(rawStatus) ? rawStatus : 'all') as 'active' | 'ex' | 'all';
 
-    // Build ordered role map: leader → officer → member
-    const roleOrder: Record<string, number> = {};
-    const roleLabel: Record<string, 'leader' | 'officer' | 'member'> = {};
-    if (clan.leader) { const k = String(clan.leader); roleOrder[k] = 0; roleLabel[k] = 'leader'; }
-    for (const o of clan.officer ?? []) { const k = String(o); roleOrder[k] = 1; roleLabel[k] = 'officer'; }
-    for (const m of clan.member  ?? []) { const k = String(m); roleOrder[k] = 2; roleLabel[k] = 'member'; }
-    const allIds = Object.keys(roleLabel);
+    const canSeeExMembers = charIsOfficerOrLeader(clan, req.user!);
+    if (status === 'ex' && !canSeeExMembers) { res.status(403).json({ message: 'Se requiere ser líder u oficial del clan' }); return; }
+    const wantsEx = status === 'ex' || (status === 'all' && canSeeExMembers);
 
-    const filter: Record<string, unknown> = { _id: { $in: allIds } };
-    if (q?.trim()) filter.name = { $regex: escapeRegex(q.trim()), $options: 'i' };
+    let activeRows: Array<Record<string, unknown>> = [];
+    if (status !== 'ex') {
+      // Build ordered role map: leader → officer → member
+      const roleOrder: Record<string, number> = {};
+      const roleLabel: Record<string, 'leader' | 'officer' | 'member'> = {};
+      if (clan.leader) { const k = String(clan.leader); roleOrder[k] = 0; roleLabel[k] = 'leader'; }
+      for (const o of clan.officer ?? []) { const k = String(o); roleOrder[k] = 1; roleLabel[k] = 'officer'; }
+      for (const m of clan.member  ?? []) { const k = String(m); roleOrder[k] = 2; roleLabel[k] = 'member'; }
+      const allIds = Object.keys(roleLabel);
 
-    const chars = await Character.find(filter).select('name currentClass resonance memberStatus status armor armorPenetration power resistance score').lean();
+      const filter: Record<string, unknown> = { _id: { $in: allIds } };
+      if (q?.trim()) filter.name = { $regex: escapeRegex(q.trim()), $options: 'i' };
 
-    chars.sort((a, b) => {
-      const ra = roleOrder[String(a._id)] ?? 2;
-      const rb = roleOrder[String(b._id)] ?? 2;
-      return ra !== rb ? ra - rb : a.name.localeCompare(b.name);
-    });
+      const chars = await Character.find(filter).select('name currentClass resonance memberStatus status armor armorPenetration power resistance score').lean();
+      chars.sort((a, b) => {
+        const ra = roleOrder[String(a._id)] ?? 2;
+        const rb = roleOrder[String(b._id)] ?? 2;
+        return ra !== rb ? ra - rb : a.name.localeCompare(b.name);
+      });
+      activeRows = chars.map(c => ({ ...c, role: roleLabel[String(c._id)] ?? 'member', isExMember: false }));
+    }
 
-    const total  = chars.length;
-    const sliced = chars.slice((page - 1) * limit, page * limit);
+    let exRows: Array<Record<string, unknown>> = [];
+    if (wantsEx) {
+      const exDocs = await ClanMembership.find({ clan: clan._id, leftAt: { $ne: null } })
+        .sort({ leftAt: -1 })
+        .populate('character', 'name currentClass resonance memberStatus status armor armorPenetration power resistance score')
+        .lean();
+      const qLower = q?.trim().toLowerCase();
+      exRows = exDocs
+        .filter(d => d.character && (!qLower || (d.character as unknown as { name?: string }).name?.toLowerCase().includes(qLower)))
+        .map(d => ({
+          ...(d.character as object),
+          role: d.role,
+          isExMember: true,
+          leftAt: d.leftAt,
+          expulsionReason: d.expulsionReason,
+        }));
+    }
 
-    res.status(200).json({
-      total,
-      page,
-      limit,
-      hasMore: page * limit < total,
-      members: sliced.map(c => ({ ...c, role: roleLabel[String(c._id)] ?? 'member' })),
-    });
+    const combined = status === 'ex' ? exRows : status === 'active' ? activeRows : [...activeRows, ...exRows];
+    const total  = combined.length;
+    const sliced = combined.slice((page - 1) * limit, page * limit);
+
+    res.status(200).json({ total, page, limit, hasMore: page * limit < total, members: sliced });
   } catch { res.status(500).json({ error: message.user.error }); }
 });
 
@@ -389,6 +427,7 @@ router.post('/:clanId/bulk-import', upload.single('file'), async (req: Request, 
         const char = await new Character({ name: rawName, ...update, status: 'unclaimed' }).save();
         clan.member.push(char._id as Types.ObjectId);
         await clan.save();
+        await openMembership(char._id, clan._id, 'member');
         await upsertAttendance(row, char._id, clan._id, swByDate);
         results.push({ name: rawName, status: 'created' });
         continue;
@@ -440,6 +479,7 @@ router.post('/:clanId/bulk-import', upload.single('file'), async (req: Request, 
         const alreadyIn = [String(clan.leader), ...clan.officer.map(String), ...clan.member.map(String)].includes(String(existing._id));
         if (!alreadyIn) { clan.member.push(existing._id as Types.ObjectId); await clan.save(); }
       }
+      await openMembership(existing._id, clan._id, 'member');
 
       // Notify owner if claimed
       if (existing.status === 'claimed') {
@@ -532,6 +572,7 @@ router.post('/:clanId/sync', upload.single('file'), async (req: Request, res: Re
       }
 
       await upsertAttendance(row, char._id, clan._id, swByDate);
+      await openMembership(char._id, clan._id, 'member');
       newMemberIds.push(char._id as Types.ObjectId);
     }
 
@@ -540,7 +581,10 @@ router.post('/:clanId/sync', upload.single('file'), async (req: Request, res: Re
     const removedIds = (clan.member ?? []).map(String).filter(id =>
       !newMemberIds.some(n => String(n) === id) && !privilegedIdSet.has(id)
     );
-    if (removedIds.length) await Character.updateMany({ _id: { $in: removedIds } }, { $unset: { clan: '' } });
+    if (removedIds.length) {
+      await Character.updateMany({ _id: { $in: removedIds } }, { $unset: { clan: '' } });
+      await Promise.all(removedIds.map(id => closeMembership(id, clan._id)));
+    }
 
     clan.member = newMemberIds;
     await clan.save();

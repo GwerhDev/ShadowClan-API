@@ -120,6 +120,18 @@ export interface ISeason extends Document {
   updatedAt: Date;
 }
 
+export interface IClanMembership extends Document {
+  clan: Types.ObjectId;
+  character: Types.ObjectId;
+  role: 'leader' | 'officer' | 'member';
+  joinedAt?: Date;
+  leftAt?: Date;
+  expulsionReason?: string;
+  removedBy?: Types.ObjectId;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface IAccursedTowerRoster {
   group1: Array<Types.ObjectId | null>;
   group2: Array<Types.ObjectId | null>;
