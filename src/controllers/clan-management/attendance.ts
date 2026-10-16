@@ -445,7 +445,8 @@ router.patch('/cycles/:cycleId', async (req: Request, res: Response): Promise<vo
     }
 
     if (startDate !== undefined) cycle.startDate = parseDayStart(startDate);
-    if (endDate !== undefined && endDate) cycle.endDate = parseDayEnd(endDate);
+    // endDate '' → reabrir el ciclo (vuelve a estar "en curso").
+    if (endDate !== undefined) cycle.endDate = endDate ? parseDayEnd(endDate) : undefined;
     if (activityType !== undefined && CYCLE_ACTIVITY_TYPES.includes(activityType as typeof CYCLE_ACTIVITY_TYPES[number])) {
       cycle.activityType = activityType as typeof CYCLE_ACTIVITY_TYPES[number];
     }
