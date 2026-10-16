@@ -1,7 +1,9 @@
 # syntax = docker/dockerfile:1
 
-ARG NODE_VERSION=18.15.0
-FROM node:${NODE_VERSION}-slim AS base
+# Debian fijado explícitamente: las imágenes basadas en bullseye (Debian 11) ya no
+# pueden instalar paquetes porque su repositorio de seguridad fue retirado.
+ARG NODE_VERSION=22.13.0
+FROM node:${NODE_VERSION}-bookworm-slim AS base
 
 LABEL fly_launch_runtime="Node.js"
 
