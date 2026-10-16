@@ -7,7 +7,7 @@ import Attendance from '../../models/Attendance';
 import Cycle from '../../models/Cycle';
 import ClanMembership from '../../models/ClanMembership';
 import { message } from '../../messages';
-import { isSystemAdmin, resolveClanRead, getClanForActiveChar, isCharacterInClan } from '../../helpers/clanScope';
+import { isSystemAdmin, resolveClanRead, getClanForActiveChar, isCharacterInClan, escapeRegex } from '../../helpers/clanScope';
 import { handleError, parse } from '../../helpers/http';
 import * as V from '../../validation/schemas';
 
@@ -249,12 +249,33 @@ router.get('/shadow-war/:shadowWarId', async (req: Request, res: Response): Prom
     const roster  = sw.clan ? await getClanRoster(sw.clan) : [];
     const records = await Attendance.find({ shadowWar: sw._id }).select('character attended');
     const attendedMap = new Map(records.map(r => [String(r.character), r.attended]));
-    const members = roster.map(m => ({
+    const all = roster.map(m => ({
       ...m,
       attended: attendedMap.has(String(m._id)) ? (attendedMap.get(String(m._id)) as boolean) : null,
     }));
+
+    // Resumen sobre la plantilla completa (no depende de los filtros).
+    const summary = {
+      total:    all.length,
+      attended: all.filter(m => m.attended === true).length,
+      absent:   all.filter(m => m.attended === false).length,
+      unmarked: all.filter(m => m.attended === null).length,
+    };
+
+    // Filtros: q (nombre) y status = attended | absent | unmarked | all.
+    const q      = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+    const status = typeof req.query.status === 'string' ? req.query.status : 'all';
+    const nameRe = q ? new RegExp(escapeRegex(q), 'i') : null;
+    const members = all.filter(m =>
+      (!nameRe || nameRe.test(m.name)) &&
+      (status === 'attended' ? m.attended === true
+        : status === 'absent' ? m.attended === false
+        : status === 'unmarked' ? m.attended === null
+        : true));
+
     res.status(200).json({
       shadowWar: { _id: sw._id, date: sw.date, enemyClan: sw.enemyClan, result: sw.result },
+      summary,
       members,
     });
   } catch (err) { handleError(res, err); }
