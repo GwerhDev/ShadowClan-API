@@ -1,14 +1,11 @@
 import { Router, type Request, type Response } from 'express';
 import ShadowWar     from '../../models/ShadowWar';
 import AccursedTower from '../../models/AccursedTower';
-import Character     from '../../models/Character';
 import Clan          from '../../models/Clan';
-import { message }   from '../../messages';
-import type { IUser } from '../../types';
+import { resolveClanRead, resolveClanWrite } from '../../helpers/clanScope';
+import { handleError } from '../../helpers/http';
 
 const router = Router();
-
-function isAdmin(user: IUser) { return user.role === 'admin' || user.role === 'super_admin'; }
 
 router.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -18,18 +15,11 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     const type  = (req.query.type as string) || 'all';
     const q     = (req.query.q as string)?.trim();
 
-    let clanFilter: Record<string, unknown> = {};
-    const { characterId } = req.query as { characterId?: string };
-    if (characterId) {
-      // Always scope to character's clan when characterId is provided, even for admins
-      const char = await Character.findById(characterId).select('clan');
-      if (!char?.clan) { res.status(200).json({ total: 0, page, limit, pages: 0, data: [] }); return; }
-      clanFilter = { clan: char.clan };
-    } else if (!isAdmin(req.user!)) {
-      // Non-admins without characterId → empty
-      res.status(200).json({ total: 0, page, limit, pages: 0, data: [] }); return;
-    }
-    // Admins without characterId → see all (dashboard use case)
+    // characterId debe pertenecer al usuario (salvo admins). Sin clan → vacío.
+    // Admins sin characterId → sin filtro (caso Dashboard).
+    const clanId = await resolveClanRead(req.user!, req.query.characterId as string | undefined);
+    if (clanId === false) { res.status(200).json({ total: 0, page, limit, pages: 0, data: [] }); return; }
+    let clanFilter: Record<string, unknown> = clanId ? { clan: clanId } : {};
 
     // Search by enemy clan name
     if (q) {
@@ -52,17 +42,23 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const [swAll, atAll] = await Promise.all([
-      ShadowWar.find(clanFilter).sort({ date: -1 }).populate('enemyClan'),
-      AccursedTower.find(clanFilter).sort({ date: -1 }).populate('enemyClan'),
+    // Los primeros (skip + limit) del listado combinado están siempre dentro de los
+    // primeros (skip + limit) de cada colección → no hace falta cargar todo en memoria.
+    const window = skip + limit;
+    const [swTotal, atTotal, swTop, atTop] = await Promise.all([
+      ShadowWar.countDocuments(clanFilter),
+      AccursedTower.countDocuments(clanFilter),
+      ShadowWar.find(clanFilter).sort({ date: -1 }).limit(window).populate('enemyClan'),
+      AccursedTower.find(clanFilter).sort({ date: -1 }).limit(window).populate('enemyClan'),
     ]);
     const combined = [
-      ...swAll.map(d => ({ ...d.toObject(), type: 'shadow_war' as const })),
-      ...atAll.map(d => ({ ...d.toObject(), type: 'accursed_tower' as const })),
+      ...swTop.map(d => ({ ...d.toObject(), type: 'shadow_war' as const })),
+      ...atTop.map(d => ({ ...d.toObject(), type: 'accursed_tower' as const })),
     ].sort((a, b) => new Date(b.date as Date).getTime() - new Date(a.date as Date).getTime());
 
-    res.status(200).json({ total: combined.length, page, limit, pages: Math.ceil(combined.length / limit), data: combined.slice(skip, skip + limit) });
-  } catch { res.status(500).json({ error: message.user.error }); }
+    const total = swTotal + atTotal;
+    res.status(200).json({ total, page, limit, pages: Math.ceil(total / limit), data: combined.slice(skip, skip + limit) });
+  } catch (err) { handleError(res, err); }
 });
 
 router.post('/', async (req: Request, res: Response): Promise<void> => {
@@ -74,29 +70,10 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       res.status(400).json({ message: 'Tipo inválido. Use shadow_war o accursed_tower' }); return;
     }
 
-    // Resolve character's clan and verify leader/officer
-    const user     = req.user!;
-    const charIds  = user.character.map(String);
-    const isAdminUser = isAdmin(user);
-
-    let clanId: unknown;
-    if (isAdminUser && !characterId) {
-      res.status(400).json({ message: 'Se requiere characterId' }); return;
-    }
-    if (characterId && !charIds.includes(String(characterId)) && !isAdminUser) {
-      res.status(403).json({ message: 'No autorizado' }); return;
-    }
-    const char = await Character.findById(characterId).select('clan');
-    if (!char?.clan) { res.status(400).json({ message: 'El personaje no tiene clan' }); return; }
-    clanId = char.clan;
-
-    if (!isAdminUser) {
-      const clan = await Clan.findById(clanId).select('leader officer');
-      if (!clan) { res.status(404).json({ message: 'Clan no encontrado' }); return; }
-      const isLeader  = String(clan.leader) === String(characterId);
-      const isOfficer = (clan.officer ?? []).some((o: unknown) => String(o) === String(characterId));
-      if (!isLeader && !isOfficer) { res.status(403).json({ message: 'Solo líderes y oficiales pueden agregar historial' }); return; }
-    }
+    if (!characterId) { res.status(400).json({ message: 'Se requiere characterId' }); return; }
+    // Verifica que el personaje activo sea líder/oficial de su clan (admins: solo que tenga clan).
+    const clanId = await resolveClanWrite(req.user!, characterId);
+    if (!clanId) { res.status(403).json({ message: 'Solo líderes y oficiales pueden agregar historial' }); return; }
 
     // Find or create enemy clan
     let enemyClanId: unknown = null;
@@ -130,7 +107,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     const populated = await AccursedTower.findById(tower._id).populate('enemyClan');
     res.status(201).json({ ...populated!.toObject(), type: 'accursed_tower' });
   } catch (err) {
-    res.status(500).json({ error: message.user.error, details: (err as Error).message });
+    handleError(res, err);
   }
 });
 

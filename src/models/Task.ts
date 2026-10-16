@@ -10,4 +10,8 @@ const taskSchema = new Schema<ITask>({
   character: { type: Schema.Types.ObjectId, ref: 'Character' },
 });
 
+taskSchema.index({ character: 1, date: 1, type: 1 });
+taskSchema.index({ user: 1, date: 1, type: 1 });
+taskSchema.index({ fixed: 1, type: 1 });
+
 export default model<ITask>('Task', taskSchema);

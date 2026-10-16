@@ -1,9 +1,10 @@
 import { Router, type Request, type Response } from 'express';
 import ClanClaimRequest from '../models/ClanClaimRequest';
 import Clan             from '../models/Clan';
-import User             from '../models/User';
 import { message }      from '../messages';
 import { getUser }      from '../helpers/getUser';
+import { handleError } from '../helpers/http';
+import { notifyAdmins } from '../socket';
 
 const router = Router();
 
@@ -32,19 +33,14 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
 
     // Notify admins
     try {
-      const { getIO } = await import('../socket');
-      const admins = await User.find({ role: { $in: ['admin', 'super_admin'] } }).select('_id');
-      const io = getIO();
-      for (const admin of admins) {
-        io.to(`dashboard:${String(admin._id)}`).emit('admin:request:new', {
-          type: 'clan-claim', id: String(request._id),
-          clanName: clan.name, requestedRole, user: { battletag: user.battletag },
-        });
-      }
+      await notifyAdmins('admin:request:new', {
+        type: 'clan-claim', id: String(request._id),
+        clanName: clan.name, requestedRole, user: { battletag: user.battletag },
+      });
     } catch (e) { console.warn('clan-claim socket failed:', (e as Error).message); }
 
     res.status(201).json(request);
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 router.get('/', async (req: Request, res: Response): Promise<void> => {
@@ -53,7 +49,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     if (!user) { res.status(401).json({ message: message.user.unauthorized }); return; }
     const requests = await ClanClaimRequest.find({ user: user._id }).populate('clan', 'name').sort({ createdAt: -1 });
     res.status(200).json(requests);
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 export default router;

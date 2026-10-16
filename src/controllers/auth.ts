@@ -2,6 +2,12 @@ import { Router, type Request, type Response } from 'express';
 import User from '../models/User';
 import { decodeToken } from '../integrations/jwt';
 import { message } from '../messages';
+import Character from '../models/Character';
+import Clan from '../models/Clan';
+import { closeMembership } from '../helpers/clanMembership';
+import { requireAuth } from '../middlewares';
+import { handleError } from '../helpers/http';
+import { notifyAdmins } from '../socket';
 
 const router = Router();
 
@@ -12,7 +18,9 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 
     if (!token) { res.status(401).json({ logged: false, message: message.user.unauthorized }); return; }
 
-    const decoded = await decodeToken(token);
+    let decoded;
+    try { decoded = await decodeToken(token); }
+    catch { res.status(401).json({ logged: false, message: message.user.unauthorized }); return; }
     const user = await User.findById(decoded.data.id)
       .populate('character')
       .populate({ path: 'character', populate: { path: 'clan' } });
@@ -33,38 +41,36 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
         character:     user.character,
       },
     });
-  } catch {
-    res.status(500).json({ logged: false, message: message.user.unauthorized });
+  } catch (err) {
+    handleError(res, err);
   }
 });
 
-router.delete('/account', async (req: Request, res: Response): Promise<void> => {
+router.delete('/account', requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
-    const token = (req.cookies as Record<string, string>)['u_tkn']
-      ?? req.headers.authorization?.split(' ')[1];
-    if (!token) { res.status(401).json({ message: message.user.unauthorized }); return; }
+    const user = req.user!;
 
-    const decoded = await decodeToken(token);
-    const user = await User.findById(decoded.data.id);
-    if (!user) { res.status(404).json({ message: message.user.notfound }); return; }
+    // Liberar personajes: cerrar membresías, sacarlos de los clanes y dejarlos sin reclamar.
+    if (user.character?.length) {
+      const chars = await Character.find({ _id: { $in: user.character } }).select('clan');
+      await Promise.all(chars.filter(c => c.clan).map(c => closeMembership(c._id, c.clan!, { removedBy: user._id })));
+      await Clan.updateMany({}, { $pull: { member: { $in: user.character }, officer: { $in: user.character } } });
+      await Clan.updateMany({ leader: { $in: user.character } }, { $unset: { leader: '' }, status: 'unclaimed' });
+      await Character.updateMany({ _id: { $in: user.character } }, { $unset: { clan: '' }, status: 'unclaimed' });
+    }
 
     await User.findByIdAndDelete(user._id);
     res.clearCookie('u_tkn');
 
     try {
-      const { getIO } = await import('../socket');
-      const io = getIO();
-      const admins = await User.find({ role: { $in: ['admin', 'super_admin'] } }).select('_id');
-      for (const admin of admins) {
-        io.to(`dashboard:${String(admin._id)}`).emit('admin:user:deleted', { id: String(user._id) });
-      }
+      await notifyAdmins('admin:user:deleted', { id: String(user._id) });
     } catch (e) {
       console.warn('Socket notification failed:', (e as Error).message);
     }
 
     res.status(200).json({ message: 'Cuenta eliminada' });
-  } catch {
-    res.status(500).json({ message: message.user.unauthorized });
+  } catch (err) {
+    handleError(res, err);
   }
 });
 

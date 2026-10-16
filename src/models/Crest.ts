@@ -10,4 +10,7 @@ const crestSchema = new Schema<ICrest>({
   character:      { type: Schema.Types.ObjectId, ref: 'Character' },
 });
 
+crestSchema.index({ character: 1, date: 1 });
+crestSchema.index({ user: 1, date: 1 });
+
 export default model<ICrest>('Crest', crestSchema);

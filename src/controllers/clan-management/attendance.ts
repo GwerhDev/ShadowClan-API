@@ -5,24 +5,14 @@ import Clan from '../../models/Clan';
 import Character from '../../models/Character';
 import Attendance from '../../models/Attendance';
 import Cycle from '../../models/Cycle';
+import ClanMembership from '../../models/ClanMembership';
 import { message } from '../../messages';
-import type { IUser } from '../../types';
-import { isSystemAdmin, getClanIdForCharacter, getClanForActiveChar } from '../../helpers/clanScope';
+import { isSystemAdmin, resolveClanRead, getClanForActiveChar, isCharacterInClan } from '../../helpers/clanScope';
+import { handleError, parse } from '../../helpers/http';
+import * as V from '../../validation/schemas';
 
 const router = Router();
 
-type ClanId = Types.ObjectId | null | false;
-
-async function resolveClanRead(user: IUser, characterId: string | undefined): Promise<ClanId> {
-  if (isSystemAdmin(user)) {
-    if (!characterId) return null;
-    return await getClanIdForCharacter(characterId);
-  }
-  const charIds = user.character.map(String);
-  if (!characterId || !charIds.includes(String(characterId))) return false;
-  const clanId = await getClanIdForCharacter(characterId);
-  return clanId ?? false;
-}
 
 function parseDayStart(d: string): Date { return new Date(d + 'T00:00:00.000Z'); }
 function parseDayEnd(d: string): Date { return new Date(d + 'T23:59:59.999Z'); }
@@ -63,6 +53,49 @@ function addDays(d: Date, n: number): Date {
   const r = new Date(d);
   r.setUTCDate(r.getUTCDate() + n);
   return r;
+}
+
+/**
+ * Fecha de ingreso al clan (membresía abierta) por personaje. Si no hay registro
+ * (membresías anteriores al historial) no se incluye → se asume miembro desde siempre.
+ */
+async function getJoinedAtMap(clanId: unknown, characterIds: unknown[]): Promise<Map<string, Date>> {
+  const docs = await ClanMembership.find({ clan: clanId, character: { $in: characterIds }, leftAt: null })
+    .select('character joinedAt').lean();
+  const map = new Map<string, Date>();
+  for (const d of docs) if (d.joinedAt) map.set(String(d.character), new Date(d.joinedAt));
+  return map;
+}
+
+/** Agrupa registros de asistencia por personaje → Set de shadowWar asistidas. */
+function attendedByCharacter(records: Array<{ character: unknown; shadowWar?: unknown; attended?: boolean }>): Map<string, Set<string>> {
+  const map = new Map<string, Set<string>>();
+  for (const r of records) {
+    if (!r.attended) continue;
+    const k = String(r.character);
+    if (!map.has(k)) map.set(k, new Set());
+    map.get(k)!.add(String(r.shadowWar));
+  }
+  return map;
+}
+
+/**
+ * Asistencia de un miembro considerando solo las Shadow Wars posteriores a su ingreso
+ * (un miembro nuevo no debe quedar con % bajo por guerras previas a su llegada).
+ */
+function memberStats(
+  sws: Array<{ _id: unknown; date: Date }>,
+  attendedSet: Set<string> | undefined,
+  joinedAt: Date | undefined,
+) {
+  const eligible = joinedAt ? sws.filter(sw => new Date(sw.date) >= startOfDay(joinedAt)) : sws;
+  const attended = eligible.filter(sw => attendedSet?.has(String(sw._id))).length;
+  const totalActivities = eligible.length;
+  return { attended, totalActivities, percentage: totalActivities ? Math.round((attended / totalActivities) * 100) : 0 };
+}
+
+function startOfDay(d: Date): Date {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
 }
 
 async function getClanRoster(clanId: Types.ObjectId | string) {
@@ -119,10 +152,9 @@ router.get('/members-summary', async (req: Request, res: Response): Promise<void
     if (!allIds.length) { res.status(200).json({ hasCycle, cycleIsOpen, data: {} }); return; }
 
     const shadowWars = since && until
-      ? await ShadowWar.find({ clan: clanId, completed: true, date: { $gte: since, $lte: until } }).select('_id')
+      ? await ShadowWar.find({ clan: clanId, completed: true, date: { $gte: since, $lte: until } }).select('_id date').lean()
       : [];
     const swIds = shadowWars.map(sw => sw._id);
-    const totalActivities = swIds.length;
 
     const data: Record<string, { percentage: number; attended: number; totalActivities: number }> = {};
 
@@ -131,15 +163,14 @@ router.get('/members-summary', async (req: Request, res: Response): Promise<void
       res.status(200).json({ hasCycle, cycleIsOpen, clanPercentage: 0, data }); return;
     }
 
-    const records = await Attendance.find({
-      shadowWar: { $in: swIds },
-      character: { $in: allIds },
-    }).select('character attended').lean();
+    const [records, joinedAt] = await Promise.all([
+      Attendance.find({ shadowWar: { $in: swIds }, character: { $in: allIds } }).select('character shadowWar attended').lean(),
+      getJoinedAtMap(clanId, allIds),
+    ]);
+    const attendedMap = attendedByCharacter(records);
 
     for (const id of allIds) {
-      const memberRecs = records.filter(r => String(r.character) === id);
-      const attended   = memberRecs.filter(r => r.attended).length;
-      data[id] = { percentage: totalActivities ? Math.round((attended / totalActivities) * 100) : 0, attended, totalActivities };
+      data[id] = memberStats(shadowWars, attendedMap.get(id), joinedAt.get(id));
     }
 
     const totalAttended = Object.values(data).reduce((sum, d) => sum + d.attended, 0);
@@ -147,7 +178,7 @@ router.get('/members-summary', async (req: Request, res: Response): Promise<void
     const clanPercentage = totalPossible ? Math.round((totalAttended / totalPossible) * 100) : 0;
 
     res.status(200).json({ hasCycle, cycleIsOpen, clanPercentage, data });
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 // ── Attendance summary for a single member, with 30/60/90/último ciclo ─────
@@ -177,6 +208,10 @@ router.get('/member/:characterId/summary', async (req: Request, res: Response): 
       since.setDate(until.getDate() - days);
     }
 
+    // Solo cuentan las Shadow Wars posteriores al ingreso del miembro al clan.
+    const joined = (await getJoinedAtMap(clanId, [targetId])).get(String(targetId));
+    if (since && joined && startOfDay(joined) > since) since = startOfDay(joined);
+
     const shadowWars = since && until
       ? await ShadowWar.find({ clan: clanId, completed: true, date: { $gte: since, $lte: until } }).select('_id')
       : [];
@@ -197,7 +232,7 @@ router.get('/member/:characterId/summary', async (req: Request, res: Response): 
       cycleIsOpen: !!latestCycle && !latestCycle.endDate,
       totalActivities, attended, missed, unmarked, percentage,
     });
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 // ── Attendance for a single Shadow War ──────────────────────────────────────
@@ -222,7 +257,7 @@ router.get('/shadow-war/:shadowWarId', async (req: Request, res: Response): Prom
       shadowWar: { _id: sw._id, date: sw.date, enemyClan: sw.enemyClan, result: sw.result },
       members,
     });
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 router.patch('/shadow-war/:shadowWarId/members/:memberId', async (req: Request, res: Response): Promise<void> => {
@@ -236,6 +271,11 @@ router.patch('/shadow-war/:shadowWarId/members/:memberId', async (req: Request, 
     const clanId = await getClanForActiveChar(req.user!, characterId);
     if (clanId === false) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
     if (clanId && String(sw.clan ?? '') !== String(clanId)) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
+    if (!(await isCharacterInClan(String(req.params.memberId), sw.clan))) {
+      // Exmiembros: se permite si tuvo membresía en el clan (historial).
+      const pastMember = await ClanMembership.exists({ clan: sw.clan, character: req.params.memberId });
+      if (!pastMember) { res.status(400).json({ message: 'El personaje no pertenece al clan.' }); return; }
+    }
 
     const record = await Attendance.findOneAndUpdate(
       { shadowWar: sw._id, character: req.params.memberId },
@@ -243,7 +283,7 @@ router.patch('/shadow-war/:shadowWarId/members/:memberId', async (req: Request, 
       { upsert: true, new: true },
     );
     res.status(200).json({ character: req.params.memberId, attended: record.attended });
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 // ── Weekly attendance view (jueves + sábado) ────────────────────────────────
@@ -316,7 +356,7 @@ router.get('/week', async (req: Request, res: Response): Promise<void> => {
       limit,
       hasMore: page * limit < total,
     });
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 // ── Attendance cycles (rango de fechas para analizar participación) ────────
@@ -337,12 +377,12 @@ router.get('/cycles', async (req: Request, res: Response): Promise<void> => {
     const total = await Cycle.countDocuments(filter);
     const data  = await Cycle.find(filter).sort({ startDate: -1 }).skip((page - 1) * limit).limit(limit);
     res.status(200).json({ total, page, limit, pages: Math.ceil(total / limit), data });
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 router.post('/cycles', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { characterId, startDate, endDate, activityType } = req.body as { characterId?: string; startDate?: string; endDate?: string; activityType?: string };
+    const { characterId, startDate, endDate, activityType } = parse(V.cycleCreate, req.body);
     const clanId = await getClanForActiveChar(req.user!, characterId);
     if (clanId === false) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
     if (!clanId) { res.status(400).json({ message: 'characterId requerido.' }); return; }
@@ -363,12 +403,12 @@ router.post('/cycles', async (req: Request, res: Response): Promise<void> => {
       createdBy: req.user!._id,
     }).save();
     res.status(201).json(cycle);
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 router.patch('/cycles/:cycleId', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { characterId, startDate, endDate, activityType } = req.body as { characterId?: string; startDate?: string; endDate?: string; activityType?: string };
+    const { characterId, startDate, endDate, activityType } = parse(V.cyclePatch, req.body);
     const cycle = await Cycle.findById(req.params.cycleId);
     if (!cycle) { res.status(404).json({ message: 'Cycle not found' }); return; }
     if (!isSystemAdmin(req.user!)) {
@@ -394,7 +434,7 @@ router.patch('/cycles/:cycleId', async (req: Request, res: Response): Promise<vo
     }
     await cycle.save();
     res.status(200).json(cycle);
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 router.delete('/cycles/:cycleId', async (req: Request, res: Response): Promise<void> => {
@@ -408,7 +448,7 @@ router.delete('/cycles/:cycleId', async (req: Request, res: Response): Promise<v
     }
     await Cycle.findByIdAndDelete(req.params.cycleId);
     res.status(200).json({ message: 'Cycle deleted' });
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 // ── Cycle report: participación de cada miembro en el rango del ciclo ──────
@@ -430,21 +470,24 @@ router.get('/cycles/:cycleId', async (req: Request, res: Response): Promise<void
     const shadowWars = await ShadowWar.find({ clan: cycle.clan, completed: true, date: { $gte: cycle.startDate, $lte: reportUntil } })
       .select('date enemyClan result').populate('enemyClan').sort({ date: 1 });
     const swIds = shadowWars.map(sw => sw._id);
-    const totalActivities = shadowWars.length;
 
     const roster  = await getClanRoster(cycle.clan);
-    const records = swIds.length ? await Attendance.find({ shadowWar: { $in: swIds } }).select('character attended') : [];
+    const [records, joinedAt] = await Promise.all([
+      swIds.length ? Attendance.find({ shadowWar: { $in: swIds } }).select('character shadowWar attended').lean() : Promise.resolve([]),
+      getJoinedAtMap(cycle.clan, roster.map(m => m._id)),
+    ]);
+    const attendedMap = attendedByCharacter(records);
+    const markedCount = new Map<string, number>();
+    for (const r of records) markedCount.set(String(r.character), (markedCount.get(String(r.character)) ?? 0) + 1);
+    const swRefs = shadowWars.map(sw => ({ _id: sw._id, date: sw.date }));
 
     const members = roster.map(m => {
-      const memberRecords = records.filter(r => String(r.character) === String(m._id));
-      const attendedCount  = memberRecords.filter(r => r.attended).length;
-      const markedCount    = memberRecords.length;
-      const percentage     = totalActivities ? Math.round((attendedCount / totalActivities) * 100) : 0;
-      return { ...m, attendedCount, markedCount, totalActivities, percentage };
+      const st = memberStats(swRefs, attendedMap.get(String(m._id)), joinedAt.get(String(m._id)));
+      return { ...m, attendedCount: st.attended, markedCount: markedCount.get(String(m._id)) ?? 0, totalActivities: st.totalActivities, percentage: st.percentage };
     }).sort((a, b) => b.percentage - a.percentage);
 
     res.status(200).json({ cycle, shadowWars, members });
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 export default router;

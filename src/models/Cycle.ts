@@ -9,4 +9,6 @@ const cycleSchema = new Schema<ICycle>({
   createdBy:    { type: Schema.Types.ObjectId, ref: 'User' },
 }, { timestamps: true });
 
+cycleSchema.index({ clan: 1, activityType: 1, startDate: -1 });
+
 export default model<ICycle>('Cycle', cycleSchema);

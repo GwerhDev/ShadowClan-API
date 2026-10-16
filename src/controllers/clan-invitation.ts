@@ -4,8 +4,9 @@ import Clan from '../models/Clan';
 import Character from '../models/Character';
 import { message } from '../messages';
 import { getUser } from '../helpers/getUser';
-import { calcScore } from '../helpers/score';
+import { mergedScore } from '../helpers/score';
 import { openMembership, closeMembership } from '../helpers/clanMembership';
+import { handleError } from '../helpers/http';
 
 const router = Router();
 
@@ -31,8 +32,8 @@ router.get('/character/:characterId', async (req: Request, res: Response): Promi
       .sort({ createdAt: -1 });
 
     res.status(200).json(invitations);
-  } catch {
-    res.status(500).json({ error: message.user.error });
+  } catch (err) {
+    handleError(res, err);
   }
 });
 
@@ -82,13 +83,7 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
       if (invitation.proposedResonance != null) charUpdate.resonance    = invitation.proposedResonance;
       if (Object.keys(charUpdate).length) {
         const charDoc = await Character.findById(invitation.character);
-        charUpdate.score = calcScore({
-          resonance:        charUpdate.resonance        !== undefined ? Number(charUpdate.resonance)        : (charDoc?.resonance        ?? 0),
-          armor:            charDoc?.armor            ?? 0,
-          armorPenetration: charDoc?.armorPenetration ?? 0,
-          power:            charDoc?.power            ?? 0,
-          resistance:       charDoc?.resistance       ?? 0,
-        });
+        charUpdate.score = mergedScore(charUpdate, charDoc);
         await Character.findByIdAndUpdate(invitation.character, charUpdate);
       }
 
@@ -110,9 +105,8 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
 
     await invitation.save();
     res.status(200).json({ message: action === 'accept' ? 'Invitación aceptada' : 'Invitación rechazada' });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: message.user.error });
+  } catch (err) {
+    handleError(res, err);
   }
 });
 

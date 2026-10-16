@@ -8,4 +8,8 @@ const clanRequestSchema = new Schema<IClanRequest>({
   status:    { type: String, default: 'pending' },
 }, { timestamps: true });
 
+clanRequestSchema.index({ clan: 1, status: 1 });
+clanRequestSchema.index({ character: 1, status: 1 });
+clanRequestSchema.index({ user: 1, createdAt: -1 });
+
 export default model<IClanRequest>('ClanRequest', clanRequestSchema);

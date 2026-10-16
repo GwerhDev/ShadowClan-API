@@ -8,4 +8,6 @@ const seasonSchema = new Schema<ISeason>({
   createdBy: { type: Schema.Types.ObjectId, ref: 'User' },
 }, { timestamps: true });
 
+seasonSchema.index({ clan: 1, startDate: -1 });
+
 export default model<ISeason>('Season', seasonSchema);

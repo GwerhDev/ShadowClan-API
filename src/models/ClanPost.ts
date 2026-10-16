@@ -10,4 +10,6 @@ const clanPostSchema = new Schema<IClanPost>({
   auto:        { type: Boolean, default: false },
 }, { timestamps: true });
 
+clanPostSchema.index({ clan: 1, createdAt: -1 });
+
 export default model<IClanPost>('ClanPost', clanPostSchema);

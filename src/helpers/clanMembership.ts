@@ -1,5 +1,7 @@
 import { Types } from 'mongoose';
 import ClanMembership from '../models/ClanMembership';
+import Character from '../models/Character';
+import { syncClanRoomsForCharacter } from '../socket';
 
 type Role = 'leader' | 'officer' | 'member';
 
@@ -14,7 +16,9 @@ export async function openMembership(
 ) {
   const existing = await ClanMembership.findOne({ character: characterId, clan: clanId, leftAt: null });
   if (existing) return existing;
-  return ClanMembership.create({ clan: clanId, character: characterId, role, joinedAt: new Date() });
+  const created = await ClanMembership.create({ clan: clanId, character: characterId, role, joinedAt: new Date() });
+  void syncClanRoomsForCharacter(characterId);
+  return created;
 }
 
 // Mantiene el `role` del registro abierto al día cuando alguien cambia de rol sin
@@ -43,9 +47,50 @@ export async function closeMembership(
     { character: characterId, clan: clanId, leftAt: null },
     { leftAt: new Date(), expulsionReason: opts?.expulsionReason, removedBy: opts?.removedBy },
   );
+  void syncClanRoomsForCharacter(characterId);
   if (updated || opts?.backfill === false) return updated;
   return ClanMembership.create({
     clan: clanId, character: characterId, role: opts?.role ?? 'member',
     leftAt: new Date(), expulsionReason: opts?.expulsionReason, removedBy: opts?.removedBy,
   });
+}
+
+export type RosterRole = 'leader' | 'officer' | 'member';
+
+/** Mapa characterId → rol actual dentro del documento Clan. */
+export function rosterRoles(clan: { leader?: unknown; officer?: unknown[]; member?: unknown[] }): Map<string, RosterRole> {
+  const m = new Map<string, RosterRole>();
+  for (const id of clan.member  ?? []) m.set(String(id), 'member');
+  for (const id of clan.officer ?? []) m.set(String(id), 'officer');
+  if (clan.leader) m.set(String(clan.leader), 'leader');
+  return m;
+}
+
+/**
+ * Mantiene Character.clan y ClanMembership coherentes tras un cambio de plantilla hecho
+ * por un admin: abre membresía a los que entran, actualiza el rol a los que cambian y
+ * cierra (y desvincula) a los que salen.
+ */
+export async function syncRosterChange(
+  clanId: Types.ObjectId | string,
+  before: Map<string, RosterRole>,
+  after: Map<string, RosterRole>,
+  actorUserId: Types.ObjectId | string,
+) {
+  const ops: Promise<unknown>[] = [];
+  for (const [id, role] of after) {
+    const prev = before.get(id);
+    if (!prev) {
+      ops.push(Character.findByIdAndUpdate(id, { clan: clanId }).then(() => openMembership(id, clanId, role)));
+    } else if (prev !== role) {
+      ops.push(openMembership(id, clanId, prev).then(() => updateOpenRole(id, clanId, role)));
+    }
+  }
+  for (const [id, role] of before) {
+    if (after.has(id)) continue;
+    ops.push(Character.updateOne({ _id: id, clan: clanId }, { $unset: { clan: '' } })
+      .then(() => closeMembership(id, clanId, { removedBy: actorUserId, role })));
+  }
+  const results = await Promise.allSettled(ops);
+  for (const r of results) if (r.status === 'rejected') console.error('syncRosterChange:', r.reason);
 }

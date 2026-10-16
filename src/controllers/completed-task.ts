@@ -1,56 +1,46 @@
 import { Router, type Request, type Response } from 'express';
-import User from '../models/User';
 import CompletedTask from '../models/CompletedTask';
-import { decodeToken } from '../integrations/jwt';
 import { message } from '../messages';
+import { requireAuth } from '../middlewares';
+import { ownerFilter, parseDate } from '../helpers/ownerScope';
+import { handleError } from '../helpers/http';
 
 const router = Router();
 
-async function getDecoded(req: Request) {
-  const token = (req.cookies as Record<string, string>)['u_tkn'] ?? req.headers.authorization?.split(' ')[1];
-  return decodeToken(token);
-}
+router.use(requireAuth);
 
 router.post('/create/:id', async (req: Request, res: Response): Promise<void> => {
   try {
-    const decoded = await getDecoded(req);
-    const user = await User.findOne({ _id: decoded.data.id });
-    if (!user) { res.status(404).json({ logged: false, message: message.user.notfound }); return; }
-
     const id = req.params.id;
     const { date, type, character } = (req.body ?? {}) as { date?: string; type?: string; character?: string };
+    const owner = ownerFilter(req.user!, character);
+    if (!owner) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
+    const day = parseDate(date);
+    if (!day || !type) { res.status(400).json({ message: 'date y type son requeridos.' }); return; }
 
-    const filter = character
-      ? { date: new Date(date ?? ''), character, type }
-      : { date: new Date(date ?? ''), user: user._id, type };
-
-    const existing = await CompletedTask.findOne(filter);
-    if (!existing) {
-      await CompletedTask.create({ tasks: [id], date: new Date(date ?? ''), type, ...(character ? { character } : { user: user._id }) });
-    } else {
-      await CompletedTask.findByIdAndUpdate(existing._id, { $push: { tasks: id } });
-    }
+    // Upsert + $addToSet: idempotente y sin duplicar la tarea en el día.
+    await CompletedTask.findOneAndUpdate(
+      { ...owner, date: day, type },
+      { $addToSet: { tasks: id } },
+      { upsert: true },
+    );
 
     res.status(200).json({ message: message.task.updated });
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 router.patch('/delete/:id', async (req: Request, res: Response): Promise<void> => {
   try {
-    const decoded = await getDecoded(req);
-    const user = await User.findOne({ _id: decoded.data.id });
-    if (!user) { res.status(404).json({ logged: false, message: message.user.notfound }); return; }
-
     const id = req.params.id;
     const { date, type, character } = (req.body ?? {}) as { date?: string; type?: string; character?: string };
+    const owner = ownerFilter(req.user!, character);
+    if (!owner) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
+    const day = parseDate(date);
+    if (!day || !type) { res.status(400).json({ message: 'date y type son requeridos.' }); return; }
 
-    const filter = character
-      ? { date: new Date(date ?? ''), character, type }
-      : { date: new Date(date ?? ''), user: user._id, type };
-
-    await CompletedTask.findOneAndUpdate(filter, { $pull: { tasks: id } });
+    await CompletedTask.findOneAndUpdate({ ...owner, date: day, type }, { $pull: { tasks: id } });
     res.status(200).json({ message: message.task.updated });
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 export default router;

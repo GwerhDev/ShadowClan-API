@@ -23,4 +23,7 @@ const accursedTowerSchema = new Schema<IAccursedTower>({
   completed: { type: Boolean, default: false },
 }, { timestamps: true });
 
+accursedTowerSchema.index({ clan: 1, date: -1 });
+accursedTowerSchema.index({ clan: 1, completed: 1, date: -1 });
+
 export default model<IAccursedTower>('AccursedTower', accursedTowerSchema);

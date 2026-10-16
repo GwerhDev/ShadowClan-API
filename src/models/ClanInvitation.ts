@@ -11,4 +11,7 @@ const clanInvitationSchema = new Schema<IClanInvitation>({
   status:            { type: String, enum: ['pending', 'accepted', 'rejected'], default: 'pending' },
 }, { timestamps: true });
 
+clanInvitationSchema.index({ clan: 1, status: 1 });
+clanInvitationSchema.index({ character: 1, status: 1 });
+
 export default model<IClanInvitation>('ClanInvitation', clanInvitationSchema);

@@ -1,6 +1,7 @@
 import type { Request } from 'express';
 import User from '../models/User';
 import { decodeToken } from '../integrations/jwt';
+import { status } from '../misc/consts-user-model';
 import type { IUser } from '../types';
 
 export async function getUser(req: Request): Promise<IUser | null> {
@@ -12,7 +13,8 @@ export async function getUser(req: Request): Promise<IUser | null> {
 
   try {
     const decoded = await decodeToken(token);
-    return User.findById(decoded.data.id);
+    const user = await User.findById(decoded.data.id);
+    return user && user.status === status.active ? user : null;
   } catch {
     return null;
   }

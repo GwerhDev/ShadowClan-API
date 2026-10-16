@@ -3,6 +3,7 @@ import User from '../models/User';
 import { aiCohere } from '../integrations/cohere';
 import { decodeToken } from '../integrations/jwt';
 import { message } from '../messages';
+import { handleError } from '../helpers/http';
 
 const router = Router();
 
@@ -19,7 +20,7 @@ router.post('/chatbot', async (req: Request, res: Response): Promise<void> => {
     const { query } = req.body as { query?: string };
     const response = await aiCohere(query ?? '');
     res.status(200).json(response);
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 export default router;

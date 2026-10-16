@@ -16,4 +16,8 @@ const characterSchema = new Schema<ICharacter>({
   whatsapp:         { type: String },
 });
 
+// Nombre único sin distinguir mayúsculas (mismo criterio que las búsquedas con $regex 'i').
+characterSchema.index({ name: 1 }, { unique: true, collation: { locale: 'en', strength: 2 } });
+characterSchema.index({ clan: 1 });
+
 export default model<ICharacter>('Character', characterSchema);

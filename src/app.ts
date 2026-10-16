@@ -5,8 +5,9 @@ import passport from 'passport';
 import MongoStore from 'connect-mongo';
 import mongoose from 'mongoose';
 import cookieParser from 'cookie-parser';
-import { privateSecret, allowedOrigins } from './config';
+import { privateSecret, allowedOriginList } from './config';
 import routes from './routes';
+import { errorMiddleware } from './helpers/http';
 
 import type { IUser } from './types';
 
@@ -23,7 +24,7 @@ app.set('trust proxy', 1);
 // CORS
 app.use((req: Request, res: Response, next: NextFunction): void => {
   const origin = req.headers.origin;
-  if (origin && allowedOrigins.includes(origin)) {
+  if (origin && allowedOriginList.includes(origin)) {
     res.header('Access-Control-Allow-Origin', origin);
   }
   res.header('Access-Control-Allow-Credentials', 'true');
@@ -33,8 +34,8 @@ app.use((req: Request, res: Response, next: NextFunction): void => {
   next();
 });
 
-app.use(express.json({ limit: '100mb' }));
-app.use(express.urlencoded({ limit: '100mb', extended: true }));
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ limit: '2mb', extended: true }));
 app.use(cookieParser());
 app.use(morgan('dev'));
 
@@ -67,5 +68,8 @@ passport.deserializeUser((data: unknown, done) => {
 });
 
 app.use('/', routes);
+
+// Errores no capturados en las rutas (y JSON malformado del body parser) → formato único.
+app.use(errorMiddleware);
 
 export default app;

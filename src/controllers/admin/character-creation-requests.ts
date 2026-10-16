@@ -2,8 +2,8 @@ import { Router, type Request, type Response } from 'express';
 import CharacterCreationRequest from '../../models/CharacterCreationRequest';
 import Character from '../../models/Character';
 import User from '../../models/User';
-import { message } from '../../messages';
 import { roles } from '../../misc/consts-user-model';
+import { handleError } from '../../helpers/http';
 
 const router = Router();
 
@@ -12,7 +12,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     const { status = 'pending' } = req.query as { status?: string };
     const requests = await CharacterCreationRequest.find({ status }).populate('user', 'battletag role').sort({ createdAt: -1 });
     res.status(200).json(requests);
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
@@ -45,9 +45,8 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
     } catch (e) { console.warn('Socket notification failed:', (e as Error).message); }
 
     res.status(200).json({ message: action === 'accept' ? 'Personaje creado y vinculado' : 'Solicitud rechazada', request });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: message.user.error });
+  } catch (err) {
+    handleError(res, err);
   }
 });
 

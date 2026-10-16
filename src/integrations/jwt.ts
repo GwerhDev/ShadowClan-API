@@ -2,7 +2,10 @@ import jwt from 'jsonwebtoken';
 import type { JwtPayload } from '../types';
 
 function secret(): string {
-  return process.env.PRIVATE_SECRET ?? '';
+  const s = process.env.PRIVATE_SECRET;
+  // Nunca firmar/verificar con un secreto vacío: cualquiera podría forjar tokens.
+  if (!s) throw new Error('PRIVATE_SECRET no está configurado');
+  return s;
 }
 
 export async function createToken(data: { id: string }, days: number): Promise<string> {

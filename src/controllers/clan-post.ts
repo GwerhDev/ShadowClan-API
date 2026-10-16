@@ -6,7 +6,17 @@ import ShadowWar from '../models/ShadowWar';
 import AccursedTower from '../models/AccursedTower';
 import { message } from '../messages';
 import { getUser } from '../helpers/getUser';
-import type { ClanPostSource } from '../types';
+import { isSystemAdmin, ownsCharacter, isLeaderOrOfficerOf, sameId } from '../helpers/clanScope';
+import type { ClanPostSource, IUser } from '../types';
+import { handleError, parse } from '../helpers/http';
+import * as V from '../validation/schemas';
+
+// Editar/eliminar: admin de sistema, o el personaje activo es líder/oficial del clan del post.
+async function canModerate(user: IUser, postClan: unknown, characterId: string | undefined): Promise<boolean> {
+  if (isSystemAdmin(user)) return true;
+  if (!ownsCharacter(user, characterId)) return false;
+  return isLeaderOrOfficerOf(characterId, postClan);
+}
 
 const router = Router();
 const VALID_SOURCES: ClanPostSource[] = ['general', 'shadow_war', 'accursed_tower'];
@@ -65,9 +75,8 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     });
 
     res.status(200).json(result);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: message.user.error });
+  } catch (err) {
+    handleError(res, err);
   }
 });
 
@@ -76,9 +85,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     const user = await getUser(req);
     if (!user) { res.status(401).json({ message: message.user.unauthorized }); return; }
 
-    const { content, characterId, source, referenceId } = req.body as {
-      content?: string; characterId?: string; source?: string; referenceId?: string;
-    };
+    const { content, characterId, source, referenceId } = parse(V.clanPostCreate, req.body);
 
     const hasReference = source === 'shadow_war' || source === 'accursed_tower';
     if (!content?.trim() && !hasReference) { res.status(400).json({ message: 'El contenido no puede estar vacío.' }); return; }
@@ -90,12 +97,17 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     if (!char?.clan) { res.status(400).json({ message: 'El personaje no pertenece a ningún clan.' }); return; }
 
     const resolvedSource: ClanPostSource = VALID_SOURCES.includes(source as ClanPostSource) ? (source as ClanPostSource) : 'general';
+    if (resolvedSource !== 'general') {
+      // La referencia debe existir y ser del mismo clan.
+      const RefModel = resolvedSource === 'shadow_war' ? ShadowWar : AccursedTower;
+      const ref = referenceId ? await (RefModel as typeof ShadowWar).findById(referenceId).select('clan').lean() : null;
+      if (!ref || !sameId(ref.clan, char.clan)) { res.status(400).json({ message: 'Referencia inválida.' }); return; }
+    }
     const post = await ClanPost.create({ clan: char.clan, author: characterId, content: (content ?? '').trim(), source: resolvedSource, referenceId: referenceId ?? null });
     const populated = await ClanPost.findById(post._id).populate('author', 'name currentClass resonance').lean();
     res.status(201).json(populated);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: message.user.error });
+  } catch (err) {
+    handleError(res, err);
   }
 });
 
@@ -104,26 +116,19 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
     const user = await getUser(req);
     if (!user) { res.status(401).json({ message: message.user.unauthorized }); return; }
 
-    const post = await ClanPost.findById(req.params.id).populate('clan', 'leader officer');
+    const post = await ClanPost.findById(req.params.id);
     if (!post) { res.status(404).json({ message: 'Publicación no encontrada.' }); return; }
 
-    const { content } = req.body as { content?: unknown };
-    if (content === undefined) { res.status(400).json({ message: 'Se requiere el campo content.' }); return; }
+    const { content, characterId } = parse(V.clanPostPatch, req.body);
 
-    const charIds  = user.character.map(String);
-    const clan     = post.clan as unknown as { leader: unknown; officer?: unknown[] };
-    const isAdmin  = user.role === 'admin' || user.role === 'super_admin';
-    const isPrivileged = charIds.includes(String(clan.leader)) || (clan.officer ?? []).some(o => charIds.includes(String(o)));
+    if (!(await canModerate(user, post.clan, characterId))) { res.status(403).json({ message: 'No tienes permisos para editar esta publicación.' }); return; }
 
-    if (!isAdmin && !isPrivileged) { res.status(403).json({ message: 'No tienes permisos para editar esta publicación.' }); return; }
-
-    post.content = ((content as string | undefined) ?? '').trim();
+    post.content = content.trim();
     await post.save();
     const updated = await ClanPost.findById(post._id).populate('author', 'name currentClass resonance').lean();
     res.status(200).json(updated);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: message.user.error });
+  } catch (err) {
+    handleError(res, err);
   }
 });
 
@@ -132,21 +137,15 @@ router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
     const user = await getUser(req);
     if (!user) { res.status(401).json({ message: message.user.unauthorized }); return; }
 
-    const post = await ClanPost.findById(req.params.id).populate('clan', 'leader officer');
+    const post = await ClanPost.findById(req.params.id);
     if (!post) { res.status(404).json({ message: 'Publicación no encontrada.' }); return; }
 
-    const charIds  = user.character.map(String);
-    const clan     = post.clan as unknown as { leader: unknown; officer?: unknown[] };
-    const isAdmin  = user.role === 'admin' || user.role === 'super_admin';
-    const isPrivileged = charIds.includes(String(clan.leader)) || (clan.officer ?? []).some(o => charIds.includes(String(o)));
-
-    if (!isAdmin && !isPrivileged) { res.status(403).json({ message: 'No tienes permisos para eliminar esta publicación.' }); return; }
+    if (!(await canModerate(user, post.clan, req.query.characterId as string | undefined))) { res.status(403).json({ message: 'No tienes permisos para eliminar esta publicación.' }); return; }
 
     await ClanPost.findByIdAndDelete(req.params.id);
     res.status(200).json({ message: 'Publicación eliminada.' });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: message.user.error });
+  } catch (err) {
+    handleError(res, err);
   }
 });
 

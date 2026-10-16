@@ -29,4 +29,7 @@ const shadowWarSchema = new Schema<IShadowWar>({
   completed: { type: Boolean, default: false },
 }, { timestamps: true });
 
+shadowWarSchema.index({ clan: 1, date: -1 });
+shadowWarSchema.index({ clan: 1, completed: 1, date: -1 });
+
 export default model<IShadowWar>('ShadowWar', shadowWarSchema);

@@ -42,11 +42,13 @@ router.get('/success', async (req: Request, res: Response): Promise<void> => {
     if (userExist?.status === status.inactive) { res.status(400).redirect(`${clientUrl}/login/user-inactive`); return; }
 
     if (userExist?.status === status.active) {
-      const token = await createToken({ id: String(userExist._id) }, 3);
+      const TOKEN_DAYS = 3;
+      const token = await createToken({ id: String(userExist._id) }, TOKEN_DAYS);
       const isProd = process.env.NODE_ENV === 'production';
+      const maxAge = TOKEN_DAYS * 86_400_000; // misma vida que el JWT
       res.cookie('u_tkn', token, isProd
-        ? { httpOnly: true, secure: true, sameSite: 'none', domain: '.shadowclan.cl', path: '/', maxAge: 86_400_000 }
-        : { httpOnly: true, secure: false, sameSite: 'lax', path: '/', maxAge: 86_400_000 }
+        ? { httpOnly: true, secure: true, sameSite: 'none', domain: '.shadowclan.cl', path: '/', maxAge }
+        : { httpOnly: true, secure: false, sameSite: 'lax', path: '/', maxAge }
       );
       res.status(200).redirect(appClientUrl);
     } else {

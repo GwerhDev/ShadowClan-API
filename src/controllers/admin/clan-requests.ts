@@ -3,8 +3,9 @@ import ClanRequest from '../../models/ClanRequest';
 import User from '../../models/User';
 import Clan from '../../models/Clan';
 import Character from '../../models/Character';
-import { message } from '../../messages';
+import { openMembership } from '../../helpers/clanMembership';
 import { roles } from '../../misc/consts-user-model';
+import { handleError } from '../../helpers/http';
 
 const router = Router();
 
@@ -24,7 +25,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       .populate('clan', 'name status')
       .sort({ createdAt: -1 });
     res.status(200).json(requests);
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
@@ -38,9 +39,15 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
     if (request.status !== 'pending') { res.status(409).json({ message: 'La solicitud ya fue procesada' }); return; }
 
     if (action === 'accept') {
-      await User.updateOne({ _id: request.user }, { role: roles.user });
-      await Clan.updateOne({ _id: request.clan }, { $push: { member: request.character } });
+      const target = await Character.findById(request.character).select('clan');
+      if (target?.clan && String(target.clan) !== String(request.clan)) {
+        res.status(409).json({ message: 'El personaje ya pertenece a otro clan' }); return;
+      }
+      // Solo un walker pasa a `user`; nunca degradar a leader/officer/admin.
+      await User.updateOne({ _id: request.user, role: roles.walker }, { role: roles.user });
+      await Clan.updateOne({ _id: request.clan }, { $addToSet: { member: request.character } });
       await Character.updateOne({ _id: request.character }, { clan: request.clan });
+      await openMembership(request.character, request.clan, 'member');
       request.status = 'accepted';
     } else {
       request.status = 'rejected';
@@ -60,9 +67,8 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
     } catch (e) { console.warn('Socket notify failed:', (e as Error).message); }
 
     res.status(200).json({ message: action === 'accept' ? 'Solicitud aceptada' : 'Solicitud rechazada', request });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: message.user.error });
+  } catch (err) {
+    handleError(res, err);
   }
 });
 

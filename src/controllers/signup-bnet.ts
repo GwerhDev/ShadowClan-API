@@ -4,6 +4,7 @@ import User from '../models/User';
 import { signupBnet } from '../integrations/bnet';
 import { clientUrl } from '../config';
 import { roles, status } from '../misc/consts-user-model';
+import { notifyAdmins } from '../socket';
 
 passport.use('signup-bnet', signupBnet as Parameters<typeof passport.use>[1]);
 
@@ -38,19 +39,14 @@ router.get('/success', async (req: Request, res: Response): Promise<void> => {
     await newUser.save();
 
     try {
-      const { getIO } = await import('../socket');
-      const io = getIO();
-      const admins = await User.find({ role: { $in: ['admin', 'super_admin'] } }).select('_id');
-      for (const admin of admins) {
-        io.to(`dashboard:${String(admin._id)}`).emit('admin:request:new', {
-          type: 'user-activation', id: String(newUser._id),
-          user: { battletag: newUser.battletag }, createdAt: newUser.createdAt,
-        });
-        io.to(`dashboard:${String(admin._id)}`).emit('admin:user:registered', {
-          id: String(newUser._id), battletag: newUser.battletag,
-          status: newUser.status, role: newUser.role, createdAt: newUser.createdAt,
-        });
-      }
+      await notifyAdmins('admin:request:new', {
+        type: 'user-activation', id: String(newUser._id),
+        user: { battletag: newUser.battletag }, createdAt: newUser.createdAt,
+      });
+      await notifyAdmins('admin:user:registered', {
+        id: String(newUser._id), battletag: newUser.battletag,
+        status: newUser.status, role: newUser.role, createdAt: newUser.createdAt,
+      });
     } catch (e) {
       console.warn('Socket notification failed:', (e as Error).message);
     }

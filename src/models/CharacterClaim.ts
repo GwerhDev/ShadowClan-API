@@ -7,4 +7,6 @@ const characterClaimSchema = new Schema<ICharacterClaim>({
   status:    { type: String, default: 'pending' },
 }, { timestamps: true });
 
+characterClaimSchema.index({ character: 1, status: 1 });
+
 export default model<ICharacterClaim>('CharacterClaim', characterClaimSchema);

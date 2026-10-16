@@ -3,6 +3,7 @@ import User        from '../../models/User';
 import Clan        from '../../models/Clan';
 import Character   from '../../models/Character';
 import ClanRequest from '../../models/ClanRequest';
+import { handleError } from '../../helpers/http';
 
 const router = Router();
 
@@ -50,9 +51,8 @@ router.get('/growth', async (req: Request, res: Response): Promise<void> => {
       }
     }
     res.json({ labels, counts });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Error al obtener datos de crecimiento' });
+  } catch (err) {
+    handleError(res, err);
   }
 });
 
@@ -105,9 +105,8 @@ router.get('/', async (_req: Request, res: Response): Promise<void> => {
     }
 
     res.json({ totalUsers: users.length, totalClans: claimedClans.length, totalCharacters: characters.length, claimedCharacters: claimedChars.length, walkers, activeUsers, pendingUsers, inactiveUsers, roleDistribution, clanRequests: { pending: pendingReqs, accepted: acceptedReqs, rejected: rejectedReqs }, charactersByClass, clans: clanList, userGrowth: { labels: growthLabels, counts: growthCounts } });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Error al obtener estadísticas de overview' });
+  } catch (err) {
+    handleError(res, err);
   }
 });
 

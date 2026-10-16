@@ -2,7 +2,8 @@ import { Router, type Request, type Response } from 'express';
 import ClanCreationRequest from '../../models/ClanCreationRequest';
 import Clan from '../../models/Clan';
 
-import { message } from '../../messages';
+import { openMembership } from '../../helpers/clanMembership';
+import { handleError } from '../../helpers/http';
 
 const router = Router();
 
@@ -14,7 +15,7 @@ router.get('/', async (_req: Request, res: Response): Promise<void> => {
       .sort({ createdAt: -1 })
       .lean();
     res.status(200).json(requests);
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
@@ -37,9 +38,10 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
 
       const clan = await new Clan({ name: request.clanName, member: [charIdStr] }).save();
 
-      // Set Character.clan
+      // Set Character.clan + historial de membresía
       const Character = (await import('../../models/Character')).default;
       await Character.findByIdAndUpdate(charIdStr, { clan: clan._id });
+      await openMembership(charIdStr, clan._id, 'member');
 
       // Notify the user
       try {
@@ -62,7 +64,7 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
     request.status = action === 'accept' ? 'accepted' : 'rejected';
     await request.save();
     res.status(200).json({ message: action === 'accept' ? 'Clan creado.' : 'Solicitud rechazada.' });
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 export default router;

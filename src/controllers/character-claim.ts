@@ -1,9 +1,10 @@
 import { Router, type Request, type Response } from 'express';
 import CharacterClaim from '../models/CharacterClaim';
 import Character from '../models/Character';
-import User from '../models/User';
 import { message } from '../messages';
 import { getUser } from '../helpers/getUser';
+import { handleError } from '../helpers/http';
+import { notifyAdmins } from '../socket';
 
 const router = Router();
 
@@ -27,21 +28,15 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     await claim.populate('character', 'name currentClass resonance');
 
     try {
-      const { getIO } = await import('../socket');
-      const io = getIO();
-      const admins = await User.find({ role: { $in: ['admin', 'super_admin'] } }).select('_id');
-      for (const admin of admins) {
-        io.to(`dashboard:${String(admin._id)}`).emit('admin:request:new', {
-          type: 'character-claim', id: String(claim._id),
-          character: claim.character, user: { battletag: user.battletag }, createdAt: claim.createdAt,
-        });
-      }
+      await notifyAdmins('admin:request:new', {
+        type: 'character-claim', id: String(claim._id),
+        character: claim.character, user: { battletag: user.battletag }, createdAt: claim.createdAt,
+      });
     } catch (e) { console.warn('Socket notification failed:', (e as Error).message); }
 
     res.status(201).json({ message: 'Solicitud de vinculación enviada', claim });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: message.user.error });
+  } catch (err) {
+    handleError(res, err);
   }
 });
 
@@ -51,7 +46,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     if (!user) { res.status(401).json({ message: message.user.unauthorized }); return; }
     const claims = await CharacterClaim.find({ user: user._id }).populate('character', 'name currentClass resonance').sort({ createdAt: -1 });
     res.status(200).json(claims);
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 export default router;

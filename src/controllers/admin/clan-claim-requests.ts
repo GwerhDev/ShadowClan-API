@@ -1,9 +1,9 @@
 import { Router, type Request, type Response } from 'express';
 import ClanClaimRequest from '../../models/ClanClaimRequest';
 import Clan             from '../../models/Clan';
-import Character        from '../../models/Character';
-import { message }      from '../../messages';
+import { rosterRoles, syncRosterChange } from '../../helpers/clanMembership';
 import { Types }        from 'mongoose';
+import { handleError } from '../../helpers/http';
 
 const router = Router();
 
@@ -15,7 +15,7 @@ router.get('/', async (_req: Request, res: Response): Promise<void> => {
       .populate('clan', 'name status')
       .sort({ createdAt: -1 });
     res.status(200).json(requests);
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
@@ -37,8 +37,16 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
       const charId  = (request.character as unknown as { _id: unknown })._id;
       const clanDoc = await Clan.findById(clan._id);
       if (clanDoc) {
+        const before = rosterRoles(clanDoc);
         if (request.requestedRole === 'leader') {
+          // El líder anterior (si lo hay) pasa a miembro en vez de desaparecer de la plantilla.
+          if (clanDoc.leader && String(clanDoc.leader) !== String(charId) &&
+              !clanDoc.officer.some(o => String(o) === String(clanDoc.leader)) &&
+              !clanDoc.member.some(m => String(m) === String(clanDoc.leader))) {
+            clanDoc.member.push(clanDoc.leader);
+          }
           clanDoc.leader = charId as typeof clanDoc.leader;
+          clanDoc.officer = clanDoc.officer.filter(o => String(o) !== String(charId));
           clanDoc.member = clanDoc.member.filter(m => String(m) !== String(charId));
         } else {
           if (!clanDoc.officer.some(o => String(o) === String(charId))) {
@@ -48,7 +56,7 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
         }
         clanDoc.status = 'claimed';
         await clanDoc.save();
-        await Character.findByIdAndUpdate(charId, { clan: clanDoc._id });
+        await syncRosterChange(clanDoc._id, before, rosterRoles(clanDoc), req.user!._id);
       }
     }
 
@@ -64,7 +72,7 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
     request.status = action === 'accept' ? 'accepted' : 'rejected';
     await request.save();
     res.status(200).json({ message: action === 'accept' ? 'Solicitud aprobada.' : 'Solicitud rechazada.' });
-  } catch (err) { res.status(500).json({ error: message.user.error, details: (err as Error).message }); }
+  } catch (err) { handleError(res, err); }
 });
 
 export default router;

@@ -3,6 +3,7 @@ import User from '../models/User';
 import Warband from '../models/Warband';
 import { decodeToken } from '../integrations/jwt';
 import { message } from '../messages';
+import { handleError } from '../helpers/http';
 
 const router = Router();
 
@@ -14,7 +15,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     if (!user) { res.status(404).json({ logged: false, message: message.user.notfound }); return; }
     const warbands = await Warband.find();
     res.status(200).json(warbands);
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 export default router;

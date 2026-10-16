@@ -11,4 +11,8 @@ const userSchema = new Schema<IUser>({
   character:   [{ type: Schema.Types.ObjectId, ref: 'Character' }],
 }, { timestamps: true });
 
+userSchema.index({ character: 1 });
+userSchema.index({ battlenetId: 1 });
+userSchema.index({ role: 1 });
+
 export default model<IUser>('User', userSchema);

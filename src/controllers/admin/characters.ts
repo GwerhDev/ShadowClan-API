@@ -4,8 +4,9 @@ import Character from '../../models/Character';
 import Clan from '../../models/Clan';
 import { message } from '../../messages';
 import { characterConsts } from '../../misc/consts-models';
-import { calcScore } from '../../helpers/score';
+import { mergedScore } from '../../helpers/score';
 import { closeMembership } from '../../helpers/clanMembership';
+import { handleError } from '../../helpers/http';
 
 const router = Router();
 
@@ -24,16 +25,16 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       Character.countDocuments(query),
     ]);
     res.status(200).json({ data: chars, total, page: pageNum, limit: limitNum, hasMore: idsArr ? false : pageNum * limitNum < total });
-  } catch { res.status(500).json({ error: message.member.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 router.post('/', async (req: Request, res: Response): Promise<void> => {
   try {
     const { name, resonance, currentClass } = req.body as { name?: string; resonance?: number; currentClass?: string };
-    if (!name) { res.status(400).json({ error: 'El nombre del personaje es obligatorio' }); return; }
+    if (!name) { res.status(400).json({ message: 'El nombre del personaje es obligatorio' }); return; }
     const char = await Character.create({ name, resonance, currentClass });
     res.status(201).json({ message: message.character.create.success, character: char });
-  } catch { res.status(500).json({ error: message.member.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 router.patch('/', async (req: Request, res: Response): Promise<void> => {
@@ -41,17 +42,24 @@ router.patch('/', async (req: Request, res: Response): Promise<void> => {
     const { _id } = req.body as { _id?: string };
     const existing = await Character.findById(_id);
     if (!existing) { res.status(404).json({ message: message.member.notfound }); return; }
-    req.body.score = calcScore({
-      resonance:        req.body.resonance        ?? existing.resonance        ?? 0,
-      armor:            req.body.armor            ?? existing.armor            ?? 0,
-      armorPenetration: req.body.armorPenetration ?? existing.armorPenetration ?? 0,
-      power:            req.body.power            ?? existing.power            ?? 0,
-      resistance:       req.body.resistance       ?? existing.resistance       ?? 0,
-    });
-    const updated = await Character.findByIdAndUpdate(_id, req.body, { new: true });
+    // Solo campos editables; `clan` se gestiona vía remove-clan / admin/clans.
+    const body = req.body as Record<string, unknown>;
+    const update: Record<string, unknown> = {};
+    for (const k of ['name', 'currentClass', 'memberStatus', 'whatsapp'] as const) {
+      if (body[k] !== undefined) update[k] = body[k];
+    }
+    for (const k of ['resonance', 'armor', 'armorPenetration', 'power', 'resistance'] as const) {
+      if (body[k] !== undefined) update[k] = Number(body[k]) || 0;
+    }
+    if (body.status !== undefined) {
+      if (!(Object.values(characterConsts.status) as string[]).includes(String(body.status))) { res.status(400).json({ message: 'Estado inválido.' }); return; }
+      update.status = body.status;
+    }
+    update.score = mergedScore(update, existing);
+    const updated = await Character.findByIdAndUpdate(_id, update, { new: true });
     if (!updated) { res.status(404).json({ message: message.member.notfound }); return; }
-    res.status(200).json({ message: message.character.update.success, characters: await Character.find() });
-  } catch { res.status(500).json({ error: message.member.error }); }
+    res.status(200).json({ message: message.character.update.success, character: updated });
+  } catch (err) { handleError(res, err); }
 });
 
 router.patch('/claim', async (req: Request, res: Response): Promise<void> => {
@@ -61,8 +69,8 @@ router.patch('/claim', async (req: Request, res: Response): Promise<void> => {
     if (!updChar) { res.status(404).json({ message: message.member.notfound }); return; }
     const updUser = await User.findByIdAndUpdate(userId, { $push: { character: characterId } }, { new: true });
     if (!updUser) { res.status(404).json({ message: message.user.notfound }); return; }
-    res.status(200).json({ message: message.character.update.success, characters: await Character.find(), users: await User.find() });
-  } catch { res.status(500).json({ error: message.member.error }); }
+    res.status(200).json({ message: message.character.update.success, character: updChar, user: updUser });
+  } catch (err) { handleError(res, err); }
 });
 
 router.patch('/unclaim', async (req: Request, res: Response): Promise<void> => {
@@ -72,8 +80,8 @@ router.patch('/unclaim', async (req: Request, res: Response): Promise<void> => {
     if (!updChar) { res.status(404).json({ message: message.member.notfound }); return; }
     const updUser = await User.findByIdAndUpdate(userId, { $pull: { character: characterId } }, { new: true });
     if (!updUser) { res.status(404).json({ message: message.user.notfound }); return; }
-    res.status(200).json({ message: message.character.update.success, characters: await Character.find(), users: await User.find() });
-  } catch { res.status(500).json({ error: message.member.error }); }
+    res.status(200).json({ message: message.character.update.success, character: updChar, user: updUser });
+  } catch (err) { handleError(res, err); }
 });
 
 router.patch('/:id/remove-clan', async (req: Request, res: Response): Promise<void> => {
@@ -96,7 +104,7 @@ router.patch('/:id/remove-clan', async (req: Request, res: Response): Promise<vo
       } catch (e) { console.warn('Socket notification failed:', (e as Error).message); }
     }
     res.status(200).json({ message: 'Personaje retirado del clan', character: updated });
-  } catch { res.status(500).json({ error: message.member.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 router.patch('/:id/unclaim', async (req: Request, res: Response): Promise<void> => {
@@ -111,7 +119,7 @@ router.patch('/:id/unclaim', async (req: Request, res: Response): Promise<void> 
     }
     const updated = await Character.findByIdAndUpdate(id, { status: 'unclaimed', clan: null }, { new: true });
     res.status(200).json({ message: 'Personaje desvinculado', character: updated });
-  } catch { res.status(500).json({ error: message.member.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
@@ -127,7 +135,7 @@ router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
     }
     await Character.findByIdAndDelete(req.params.id);
     res.status(200).json({ message: message.character.delete.success });
-  } catch { res.status(500).json({ error: message.member.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 export default router;

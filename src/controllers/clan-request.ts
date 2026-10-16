@@ -7,6 +7,9 @@ import { message } from '../messages';
 import { getUser } from '../helpers/getUser';
 import { openMembership } from '../helpers/clanMembership';
 import ClanMembership from '../models/ClanMembership';
+import { isSystemAdmin, ownsCharacter, isLeaderOrOfficerOf, sameId } from '../helpers/clanScope';
+import { handleError, parse } from '../helpers/http';
+import * as V from '../validation/schemas';
 
 const router = Router();
 
@@ -16,8 +19,15 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     const user = await getUser(req);
     if (!user) { res.status(401).json({ message: message.user.unauthorized }); return; }
 
-    const { characterId, clanId } = req.body as { characterId?: string; clanId?: string };
-    if (!characterId || !clanId) { res.status(400).json({ message: 'Se requiere personaje y clan' }); return; }
+    const { characterId, clanId } = parse(V.clanRequestCreate, req.body);
+    if (!ownsCharacter(user, characterId)) { res.status(403).json({ message: 'El personaje no te pertenece' }); return; }
+
+    const [targetClan, reqChar] = await Promise.all([
+      Clan.findById(clanId).select('_id'),
+      Character.findById(characterId).select('clan'),
+    ]);
+    if (!targetClan) { res.status(404).json({ message: 'Clan no encontrado' }); return; }
+    if (reqChar?.clan && sameId(reqChar.clan, clanId)) { res.status(409).json({ message: 'El personaje ya pertenece a este clan' }); return; }
 
     const existing = await ClanRequest.findOne({ character: characterId, clan: clanId, status: 'pending' });
     if (existing) { res.status(409).json({ message: 'Ya hay una solicitud pendiente para este clan' }); return; }
@@ -64,9 +74,8 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     }
 
     res.status(201).json({ message: 'Solicitud enviada', request });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: message.user.error });
+  } catch (err) {
+    handleError(res, err);
   }
 });
 
@@ -114,9 +123,8 @@ router.get('/manage', async (req: Request, res: Response): Promise<void> => {
     }));
 
     res.status(200).json(withHistory);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: message.user.error });
+  } catch (err) {
+    handleError(res, err);
   }
 });
 
@@ -153,9 +161,8 @@ router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
     } catch (e) { console.warn('Socket cancel failed:', (e as Error).message); }
 
     res.status(200).json({ message: 'Solicitud cancelada.' });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: message.user.error });
+  } catch (err) {
+    handleError(res, err);
   }
 });
 
@@ -165,7 +172,7 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
     const user = await getUser(req);
     if (!user) { res.status(401).json({ message: message.user.unauthorized }); return; }
 
-    const { action } = req.body as { action?: string };
+    const { action, characterId } = req.body as { action?: string; characterId?: string };
     if (!action || !['accept', 'reject'].includes(action)) {
       res.status(400).json({ message: 'Acción inválida. Usa "accept" o "reject"' });
       return;
@@ -178,14 +185,16 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
     const clan = await Clan.findById(request.clan);
     if (!clan) { res.status(404).json({ message: 'Clan no encontrado' }); return; }
 
-    const charIds = user.character.map(String);
-    const isPrivileged =
-      charIds.includes(String(clan.leader)) ||
-      clan.officer.some(o => charIds.includes(String(o)));
-
+    // El personaje activo (characterId) debe ser líder/oficial del clan de la solicitud.
+    const isPrivileged = isSystemAdmin(user) ||
+      (ownsCharacter(user, characterId) && await isLeaderOrOfficerOf(characterId, clan._id));
     if (!isPrivileged) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
 
     if (action === 'accept') {
+      const target = await Character.findById(request.character).select('clan');
+      if (target?.clan && !sameId(target.clan, request.clan)) {
+        res.status(409).json({ message: 'El personaje ya pertenece a otro clan' }); return;
+      }
       await Clan.updateOne({ _id: request.clan }, { $addToSet: { member: request.character } });
       await Character.updateOne({ _id: request.character }, { clan: request.clan });
       await openMembership(request.character, request.clan, 'member');
@@ -218,9 +227,8 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
       message: action === 'accept' ? 'Solicitud aceptada' : 'Solicitud rechazada',
       request: populated,
     });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: message.user.error });
+  } catch (err) {
+    handleError(res, err);
   }
 });
 
@@ -236,8 +244,8 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       .sort({ createdAt: -1 });
 
     res.status(200).json(requests);
-  } catch {
-    res.status(500).json({ error: message.user.error });
+  } catch (err) {
+    handleError(res, err);
   }
 });
 

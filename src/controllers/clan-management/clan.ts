@@ -7,109 +7,61 @@ import Character from '../../models/Character';
 import User from '../../models/User';
 import ClanInvitation from '../../models/ClanInvitation';
 import { message } from '../../messages';
-import type { IUser, IClan } from '../../types';
-import { calcScore } from '../../helpers/score';
-import ShadowWar from '../../models/ShadowWar';
-import Attendance from '../../models/Attendance';
+import type { IClan } from '../../types';
+import { isSystemAdmin, ownsCharacter, sameId, escapeRegex } from '../../helpers/clanScope';
+import { mergedScore } from '../../helpers/score';
 import { openMembership, closeMembership, updateOpenRole } from '../../helpers/clanMembership';
+import { resolveClass, num, buildSwByDate, upsertAttendance } from '../../helpers/rosterImport';
 import ClanMembership from '../../models/ClanMembership';
+import { handleError, parse } from '../../helpers/http';
+import * as V from '../../validation/schemas';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
-
-// Spanish class name → system value
-const CLASS_MAP: Record<string, string> = {
-  'druida': 'druid',
-  'bárbaro': 'barbarian', 'barbaro': 'barbarian',
-  'caballero de sangre': 'bloodknight', 'caballero sangriento': 'bloodknight',
-  'guerrero divino': 'crusader',
-  'cazador de demonios': 'demonhunter',
-  'monje': 'monk',
-  'nigromante': 'necromancer',
-  'tempest': 'tempest',
-  'arcanista': 'wizard',
-  'conjurador': 'warlock',
-};
-const VALID_VALUES = new Set(Object.values(CLASS_MAP));
-
-function resolveClass(raw: unknown): string | undefined {
-  if (!raw) return undefined;
-  const key = String(raw).trim().toLowerCase();
-  return CLASS_MAP[key] ?? (VALID_VALUES.has(key) ? key : undefined);
-}
-function escapeRegex(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-function num(v: unknown): number | undefined {
-  const n = Number(v);
-  return isNaN(n) || v === '' || v === null || v === undefined ? undefined : n;
-}
-
-// ── Attendance import helpers ─────────────────────────────────────────────────
-const MONTH_MAP: Record<string, number> = {
-  ene:1,feb:2,mar:3,abr:4,may:5,jun:6,jul:7,ago:8,sep:9,oct:10,nov:11,dic:12
-};
-const NON_DATE_COLS = new Set(['Rank','Jugador','Armadura','Penetracion','Potencia','Resistencia','Resonancia','Score','Clase','Whatsapp','Observaciones','Asist']);
-
-function parseDateCol(col: string, year: number): string | null {
-  const m = col.match(/^(\d{1,2})([a-z]+)$/i);
-  if (!m) return null;
-  const month = MONTH_MAP[m[2].toLowerCase()];
-  if (!month) return null;
-  const day = parseInt(m[1], 10);
-  return `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
-}
-
-async function buildSwByDate(rows: Record<string, unknown>[], clanId: unknown): Promise<Map<string, any>> {
-  const year    = new Date().getFullYear();
-  const allCols = rows.length ? Object.keys(rows[0]) : [];
-  const dateCols = allCols.filter(c => !NON_DATE_COLS.has(c) && parseDateCol(c, year) !== null);
-  const map     = new Map<string, any>();
-  for (const col of dateCols) {
-    const dateStr = parseDateCol(col, year)!;
-    const start   = new Date(dateStr + 'T00:00:00.000Z');
-    const end     = new Date(dateStr + 'T23:59:59.999Z');
-    const sw      = await ShadowWar.findOne({ clan: clanId, date: { $gte: start, $lte: end } }).select('_id date clan');
-    map.set(col, sw ?? null);
-  }
-  return map;
-}
-
-async function upsertAttendance(
-  row: Record<string, unknown>,
-  characterId: unknown,
-  clanId: unknown,
-  swByDate: Map<string, any>,
-): Promise<void> {
-  for (const [col, sw] of swByDate) {
-    if (!sw || Number(row[col]) !== 1) continue;
-    await Attendance.findOneAndUpdate(
-      { shadowWar: sw._id, character: characterId },
-      { attended: true, clan: clanId, date: sw.date, activityType: 'shadow_war' },
-      { upsert: true },
-    );
-  }
-}
 
 const router = Router();
 
 const populateClan = (q: ReturnType<typeof Clan.findById>) =>
   q.populate('leader').populate('officer').populate('member');
 
-function isSystemAdmin(user: IUser) { return user.role === 'admin' || user.role === 'super_admin'; }
-function userCharIds(user: IUser)   { return user.character.map(String); }
-function charIsLeader(clan: IClan, user: IUser)          { return isSystemAdmin(user) || userCharIds(user).includes(String(clan.leader)); }
-function charIsOfficerOrLeader(clan: IClan, user: IUser) {
-  return isSystemAdmin(user) || userCharIds(user).includes(String(clan.leader)) || clan.officer.some(o => userCharIds(user).includes(String(o)));
+// El personaje activo (actor) viaja siempre como ?characterId= en estas rutas, porque
+// en varias el `characterId` del body/params es el personaje OBJETIVO de la acción.
+// Los permisos se evalúan sobre ese personaje, nunca sobre "cualquiera" de la cuenta.
+function actorId(req: Request): string | undefined {
+  const v = req.query.characterId;
+  return typeof v === 'string' && v ? v : undefined;
+}
+function actorOwned(req: Request): string | null {
+  const id = actorId(req);
+  return id && ownsCharacter(req.user!, id) ? id : null;
+}
+function charIsLeader(clan: IClan, req: Request): boolean {
+  if (isSystemAdmin(req.user!)) return true;
+  const id = actorOwned(req);
+  return !!id && sameId(clan.leader, id);
+}
+function charIsOfficerOrLeader(clan: IClan, req: Request): boolean {
+  if (isSystemAdmin(req.user!)) return true;
+  const id = actorOwned(req);
+  return !!id && (sameId(clan.leader, id) || clan.officer.some(o => sameId(o, id)));
+}
+function charIsMember(clan: IClan, req: Request): boolean {
+  if (isSystemAdmin(req.user!)) return true;
+  const id = actorOwned(req);
+  return !!id && (sameId(clan.leader, id) || clan.officer.some(o => sameId(o, id)) || clan.member.some(m => sameId(m, id)));
 }
 
 router.get('/:clanId', async (req: Request, res: Response): Promise<void> => {
   try {
     const clan = await populateClan(Clan.findById(req.params.clanId));
     if (!clan) { res.status(404).json({ message: 'Clan not found' }); return; }
-    const pendingInvitations = await ClanInvitation.find({ clan: req.params.clanId, status: 'pending' })
-      .populate('character', 'name currentClass resonance').populate('invitedByUser', 'battletag').sort({ createdAt: -1 });
+    // Solo miembros del clan (o admins) ven la plantilla; las invitaciones solo líder/oficial.
+    if (!charIsMember(clan as unknown as IClan, req)) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
+    const pendingInvitations = charIsOfficerOrLeader(clan as unknown as IClan, req)
+      ? await ClanInvitation.find({ clan: req.params.clanId, status: 'pending' })
+          .populate('character', 'name currentClass resonance').populate('invitedByUser', 'battletag').sort({ createdAt: -1 })
+      : [];
     res.status(200).json({ ...(clan as unknown as { toObject(): Record<string, unknown> }).toObject(), pendingInvitations });
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 router.post('/:clanId/members', async (req: Request, res: Response): Promise<void> => {
@@ -117,14 +69,15 @@ router.post('/:clanId/members', async (req: Request, res: Response): Promise<voi
     const { characterId } = req.body as { characterId?: string };
     const clan = await Clan.findById(req.params.clanId);
     if (!clan) { res.status(404).json({ message: 'Clan not found' }); return; }
-    if (!charIsOfficerOrLeader(clan, req.user!)) { res.status(403).json({ message: 'Se requiere ser líder u oficial del clan' }); return; }
+    if (!charIsOfficerOrLeader(clan, req)) { res.status(403).json({ message: 'Se requiere ser líder u oficial del clan' }); return; }
     const char = await Character.findById(characterId);
     if (!char) { res.status(404).json({ message: 'Character not found' }); return; }
-    const alreadyIn = [String(clan.leader), ...clan.officer.map(String), ...clan.member.map(String)].includes(String(characterId));
+    if (char.clan && !sameId(char.clan, clan._id)) { res.status(409).json({ message: 'El personaje ya pertenece a otro clan' }); return; }
+    const alreadyIn =[String(clan.leader), ...clan.officer.map(String), ...clan.member.map(String)].includes(String(characterId));
     if (!alreadyIn) { clan.member.push(char._id); char.clan = clan._id; await Promise.all([clan.save(), char.save()]); }
     await openMembership(char._id, clan._id, 'member');
     res.status(200).json(await populateClan(Clan.findById(req.params.clanId)));
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 // Self-leave clan
@@ -162,7 +115,7 @@ router.post('/:clanId/leave', async (req: Request, res: Response): Promise<void>
     await closeMembership(characterId, clanId);
 
     res.status(200).json({ message: 'Has abandonado el clan.' });
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 router.delete('/:clanId/members/:characterId', async (req: Request, res: Response): Promise<void> => {
@@ -171,10 +124,10 @@ router.delete('/:clanId/members/:characterId', async (req: Request, res: Respons
     const { reason } = req.body as { reason?: string };
     const clan = await Clan.findById(clanId);
     if (!clan) { res.status(404).json({ message: 'Clan not found' }); return; }
-    if (!charIsOfficerOrLeader(clan, req.user!)) { res.status(403).json({ message: 'Se requiere ser líder u oficial del clan' }); return; }
+    if (!charIsOfficerOrLeader(clan, req)) { res.status(403).json({ message: 'Se requiere ser líder u oficial del clan' }); return; }
     if (String(clan.leader) === characterId) { res.status(400).json({ message: 'No se puede eliminar al líder del clan' }); return; }
     const targetIsOfficer = clan.officer.some(o => String(o) === characterId);
-    if (targetIsOfficer && !charIsLeader(clan, req.user!)) { res.status(403).json({ message: 'Solo el líder puede eliminar oficiales' }); return; }
+    if (targetIsOfficer && !charIsLeader(clan, req)) { res.status(403).json({ message: 'Solo el líder puede eliminar oficiales' }); return; }
     clan.member  = clan.member.filter(m => String(m) !== characterId);
     clan.officer = clan.officer.filter(o => String(o) !== characterId);
     await clan.save();
@@ -190,30 +143,29 @@ router.delete('/:clanId/members/:characterId', async (req: Request, res: Respons
       if (owner) getIO().to(`user:${String(owner._id)}`).emit('clan:member-removed', { clanName: clan.name, characterId });
     } catch (e) { console.warn('Socket notification failed:', (e as Error).message); }
     res.status(200).json(await populateClan(Clan.findById(clanId)));
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 router.post('/:clanId/characters', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { name, resonance, currentClass } = req.body as { name?: string; resonance?: number; currentClass?: string };
+    const { name, resonance, currentClass } = parse(V.clanCharacterCreate, req.body);
     const clan = await Clan.findById(req.params.clanId);
     if (!clan) { res.status(404).json({ message: 'Clan not found' }); return; }
-    if (!charIsOfficerOrLeader(clan, req.user!)) { res.status(403).json({ message: 'Se requiere ser líder u oficial del clan' }); return; }
+    if (!charIsOfficerOrLeader(clan, req)) { res.status(403).json({ message: 'Se requiere ser líder u oficial del clan' }); return; }
     const char = await new Character({ name, resonance, currentClass, clan: req.params.clanId, status: 'unclaimed' }).save();
     clan.member.push(char._id); await clan.save();
     await openMembership(char._id, clan._id, 'member');
     res.status(201).json(await populateClan(Clan.findById(req.params.clanId)));
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 router.patch('/:clanId/members/:characterId', async (req: Request, res: Response): Promise<void> => {
   try {
     const clanId = String(req.params.clanId); const characterId = String(req.params.characterId);
-    const { currentClass, resonance, memberStatus, armor, armorPenetration, power, resistance } =
-      req.body as { currentClass?: string; resonance?: number; memberStatus?: string; armor?: number; armorPenetration?: number; power?: number; resistance?: number };
+    const { currentClass, resonance, memberStatus, armor, armorPenetration, power, resistance } = parse(V.memberPatch, req.body);
     const clan = await Clan.findById(clanId);
     if (!clan) { res.status(404).json({ message: 'Clan not found' }); return; }
-    if (!charIsOfficerOrLeader(clan, req.user!)) { res.status(403).json({ message: 'Se requiere ser líder u oficial del clan' }); return; }
+    if (!charIsOfficerOrLeader(clan, req)) { res.status(403).json({ message: 'Se requiere ser líder u oficial del clan' }); return; }
     const inClan = [String(clan.leader), ...clan.officer.map(String), ...clan.member.map(String)].includes(characterId);
     if (!inClan) { res.status(400).json({ message: 'El personaje no pertenece a este clan' }); return; }
     const existing = await Character.findById(characterId);
@@ -225,16 +177,10 @@ router.patch('/:clanId/members/:characterId', async (req: Request, res: Response
     if (armorPenetration !== undefined) update.armorPenetration = Number(armorPenetration);
     if (power            !== undefined) update.power            = Number(power);
     if (resistance       !== undefined) update.resistance       = Number(resistance);
-    update.score = calcScore({
-      resonance:        resonance        !== undefined ? Number(resonance)        : (existing?.resonance        ?? 0),
-      armor:            armor            !== undefined ? Number(armor)            : (existing?.armor            ?? 0),
-      armorPenetration: armorPenetration !== undefined ? Number(armorPenetration) : (existing?.armorPenetration ?? 0),
-      power:            power            !== undefined ? Number(power)            : (existing?.power            ?? 0),
-      resistance:       resistance       !== undefined ? Number(resistance)       : (existing?.resistance       ?? 0),
-    });
+    update.score = mergedScore(update, existing);
     await Character.findByIdAndUpdate(characterId, update);
     res.status(200).json(await populateClan(Clan.findById(clanId)));
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 router.patch('/:clanId/members/:characterId/role', async (req: Request, res: Response): Promise<void> => {
@@ -244,7 +190,7 @@ router.patch('/:clanId/members/:characterId/role', async (req: Request, res: Res
     if (!role || !['officer', 'member'].includes(role)) { res.status(400).json({ message: 'Rol inválido. Use "officer" o "member"' }); return; }
     const clan = await Clan.findById(clanId);
     if (!clan) { res.status(404).json({ message: 'Clan not found' }); return; }
-    if (!charIsLeader(clan, req.user!)) { res.status(403).json({ message: 'Solo el líder del clan puede cambiar roles' }); return; }
+    if (!charIsLeader(clan, req)) { res.status(403).json({ message: 'Solo el líder del clan puede cambiar roles' }); return; }
     if (String(clan.leader) === characterId) { res.status(400).json({ message: 'No se puede cambiar el rol del líder' }); return; }
     const inClan = clan.officer.map(String).includes(characterId) || clan.member.map(String).includes(characterId);
     if (!inClan) { res.status(404).json({ message: 'El personaje no pertenece a este clan' }); return; }
@@ -255,27 +201,27 @@ router.patch('/:clanId/members/:characterId/role', async (req: Request, res: Res
     await clan.save();
     await updateOpenRole(characterId, clanId, role as 'officer' | 'member');
     res.status(200).json(await populateClan(Clan.findById(clanId)));
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 router.get('/:clanId/invitations', async (req: Request, res: Response): Promise<void> => {
   try {
     const clan = await Clan.findById(req.params.clanId);
     if (!clan) { res.status(404).json({ message: 'Clan not found' }); return; }
-    if (!charIsOfficerOrLeader(clan, req.user!)) { res.status(403).json({ message: 'Se requiere ser líder u oficial del clan' }); return; }
+    if (!charIsOfficerOrLeader(clan, req)) { res.status(403).json({ message: 'Se requiere ser líder u oficial del clan' }); return; }
     const invitations = await ClanInvitation.find({ clan: req.params.clanId, status: 'pending' })
       .populate('character', 'name currentClass resonance').populate('invitedByUser', 'battletag').sort({ createdAt: -1 });
     res.status(200).json(invitations);
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 router.post('/:clanId/invitations', async (req: Request, res: Response): Promise<void> => {
   try {
     const { clanId } = req.params;
-    const { characterId, role, proposedClass, proposedResonance } = req.body as { characterId?: string; role?: string; proposedClass?: string; proposedResonance?: number };
+    const { characterId, role, proposedClass, proposedResonance } = parse(V.invitationCreate, req.body);
     const clan = await Clan.findById(clanId);
     if (!clan) { res.status(404).json({ message: 'Clan not found' }); return; }
-    if (!charIsOfficerOrLeader(clan, req.user!)) { res.status(403).json({ message: 'Se requiere ser líder u oficial del clan' }); return; }
+    if (!charIsOfficerOrLeader(clan, req)) { res.status(403).json({ message: 'Se requiere ser líder u oficial del clan' }); return; }
     const char = await Character.findById(characterId);
     if (!char) { res.status(404).json({ message: 'Personaje no encontrado' }); return; }
     if (char.status !== 'claimed') { res.status(400).json({ message: 'El personaje no está vinculado a un usuario' }); return; }
@@ -301,18 +247,18 @@ router.post('/:clanId/invitations', async (req: Request, res: Response): Promise
       }
     } catch (e) { console.warn('Socket notification failed:', (e as Error).message); }
     res.status(201).json({ message: 'Invitación enviada' });
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 router.delete('/:clanId/invitations/:invitationId', async (req: Request, res: Response): Promise<void> => {
   try {
     const clan = await Clan.findById(req.params.clanId);
     if (!clan) { res.status(404).json({ message: 'Clan not found' }); return; }
-    if (!charIsOfficerOrLeader(clan, req.user!)) { res.status(403).json({ message: 'Se requiere ser líder u oficial del clan' }); return; }
+    if (!charIsOfficerOrLeader(clan, req)) { res.status(403).json({ message: 'Se requiere ser líder u oficial del clan' }); return; }
     const inv = await ClanInvitation.findOneAndDelete({ _id: req.params.invitationId, clan: req.params.clanId, status: 'pending' });
     if (!inv) { res.status(404).json({ message: 'Invitación no encontrada' }); return; }
     res.status(200).json({ message: 'Invitación cancelada' });
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 // ── Paginated members list ────────────────────────────────────────────────────
@@ -330,7 +276,8 @@ router.get('/:clanId/members', async (req: Request, res: Response): Promise<void
     const limit  = Math.min(50, Math.max(1, parseInt(rawLimit ?? '20', 10)));
     const status = (['active', 'ex', 'all'].includes(rawStatus) ? rawStatus : 'all') as 'active' | 'ex' | 'all';
 
-    const canSeeExMembers = charIsOfficerOrLeader(clan, req.user!);
+    if (!charIsMember(clan, req)) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
+    const canSeeExMembers = charIsOfficerOrLeader(clan, req);
     if (status === 'ex' && !canSeeExMembers) { res.status(403).json({ message: 'Se requiere ser líder u oficial del clan' }); return; }
     const wantsEx = status === 'ex' || (status === 'all' && canSeeExMembers);
 
@@ -379,7 +326,7 @@ router.get('/:clanId/members', async (req: Request, res: Response): Promise<void
     const sliced = combined.slice((page - 1) * limit, page * limit);
 
     res.status(200).json({ total, page, limit, hasMore: page * limit < total, members: sliced });
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 // ── Bulk import from CSV / XLSX ───────────────────────────────────────────────
@@ -389,7 +336,7 @@ router.post('/:clanId/bulk-import', upload.single('file'), async (req: Request, 
 
     const clan = await Clan.findById(req.params.clanId);
     if (!clan) { res.status(404).json({ message: 'Clan not found' }); return; }
-    if (!charIsOfficerOrLeader(clan, req.user!)) { res.status(403).json({ message: 'Se requiere ser líder u oficial del clan' }); return; }
+    if (!charIsOfficerOrLeader(clan, req)) { res.status(403).json({ message: 'Se requiere ser líder u oficial del clan' }); return; }
 
     // Parse file (supports .csv and .xlsx)
     const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
@@ -423,7 +370,7 @@ router.post('/:clanId/bulk-import', upload.single('file'), async (req: Request, 
 
       if (!existing) {
         // Create new unclaimed character and add to clan
-        update.score = calcScore({ resonance: (update.resonance ?? 0) as number, armor: (update.armor ?? 0) as number, armorPenetration: (update.armorPenetration ?? 0) as number, power: (update.power ?? 0) as number, resistance: (update.resistance ?? 0) as number });
+        update.score = mergedScore(update);
         const char = await new Character({ name: rawName, ...update, status: 'unclaimed' }).save();
         clan.member.push(char._id as Types.ObjectId);
         await clan.save();
@@ -470,7 +417,7 @@ router.post('/:clanId/bulk-import', upload.single('file'), async (req: Request, 
       }
 
       // Character is unclaimed or in this clan → update stats
-      update.score = calcScore({ resonance: (update.resonance ?? existing.resonance ?? 0) as number, armor: (update.armor ?? existing.armor ?? 0) as number, armorPenetration: (update.armorPenetration ?? existing.armorPenetration ?? 0) as number, power: (update.power ?? existing.power ?? 0) as number, resistance: (update.resistance ?? existing.resistance ?? 0) as number });
+      update.score = mergedScore(update, existing);
       await Character.findByIdAndUpdate(existing._id, update);
       await upsertAttendance(row, existing._id, clan._id, swByDate);
 
@@ -499,7 +446,7 @@ router.post('/:clanId/bulk-import', upload.single('file'), async (req: Request, 
 
     res.status(200).json({ processed: results.length, results });
   } catch (err) {
-    res.status(500).json({ error: message.user.error, details: (err as Error).message });
+    handleError(res, err);
   }
 });
 
@@ -510,7 +457,7 @@ router.post('/:clanId/sync', upload.single('file'), async (req: Request, res: Re
 
     const clan = await Clan.findById(req.params.clanId);
     if (!clan) { res.status(404).json({ message: 'Clan not found' }); return; }
-    if (!charIsOfficerOrLeader(clan, req.user!)) { res.status(403).json({ message: 'Se requiere ser líder u oficial del clan' }); return; }
+    if (!charIsOfficerOrLeader(clan, req)) { res.status(403).json({ message: 'Se requiere ser líder u oficial del clan' }); return; }
 
     const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
     const sheet    = workbook.Sheets[workbook.SheetNames[0]];
@@ -552,7 +499,7 @@ router.post('/:clanId/sync', upload.single('file'), async (req: Request, res: Re
       if (privilegedId) {
         // Update their stats but keep their role — never add to member[]
         const priv = await Character.findById(privilegedId);
-        data.score = calcScore({ resonance: (data.resonance ?? priv?.resonance ?? 0) as number, armor: (data.armor ?? priv?.armor ?? 0) as number, armorPenetration: (data.armorPenetration ?? priv?.armorPenetration ?? 0) as number, power: (data.power ?? priv?.power ?? 0) as number, resistance: (data.resistance ?? priv?.resistance ?? 0) as number });
+        data.score = mergedScore(data, priv);
         await Character.findByIdAndUpdate(privilegedId, data);
         await upsertAttendance(row, privilegedId, clan._id, swByDate);
         results.push({ name: rawName, status: 'updated' });
@@ -562,11 +509,11 @@ router.post('/:clanId/sync', upload.single('file'), async (req: Request, res: Re
       let char = await Character.findOne({ name: { $regex: `^${escapeRegex(rawName)}$`, $options: 'i' } });
 
       if (!char) {
-        data.score = calcScore({ resonance: (data.resonance ?? 0) as number, armor: (data.armor ?? 0) as number, armorPenetration: (data.armorPenetration ?? 0) as number, power: (data.power ?? 0) as number, resistance: (data.resistance ?? 0) as number });
+        data.score = mergedScore(data);
         char = await new Character({ name: rawName, ...data, status: 'unclaimed', clan: clan._id }).save();
         results.push({ name: rawName, status: 'created' });
       } else {
-        data.score = calcScore({ resonance: (data.resonance ?? char.resonance ?? 0) as number, armor: (data.armor ?? char.armor ?? 0) as number, armorPenetration: (data.armorPenetration ?? char.armorPenetration ?? 0) as number, power: (data.power ?? char.power ?? 0) as number, resistance: (data.resistance ?? char.resistance ?? 0) as number });
+        data.score = mergedScore(data, char);
         await Character.findByIdAndUpdate(char._id, { ...data, clan: clan._id });
         results.push({ name: rawName, status: 'updated' });
       }
@@ -591,7 +538,7 @@ router.post('/:clanId/sync', upload.single('file'), async (req: Request, res: Re
 
     res.status(200).json({ processed: results.length, removed: removedIds.length, results });
   } catch (err) {
-    res.status(500).json({ error: message.user.error, details: (err as Error).message });
+    handleError(res, err);
   }
 });
 
@@ -599,7 +546,7 @@ router.patch('/:clanId/saved-roster', async (req: Request, res: Response): Promi
   try {
     const clan = await Clan.findById(req.params.clanId);
     if (!clan) { res.status(404).json({ message: 'Clan not found' }); return; }
-    if (!charIsOfficerOrLeader(clan, req.user!)) { res.status(403).json({ message: 'Se requiere ser líder u oficial del clan' }); return; }
+    if (!charIsOfficerOrLeader(clan, req)) { res.status(403).json({ message: 'Se requiere ser líder u oficial del clan' }); return; }
 
     const { type, slot, data, name, customIndex, action } =
       req.body as { type?: string; slot?: string; data?: any; name?: string; customIndex?: number | null; action?: string };
@@ -633,14 +580,14 @@ router.patch('/:clanId/saved-roster', async (req: Request, res: Response): Promi
 
     await Clan.findByIdAndUpdate(req.params.clanId, { [field]: current });
     res.status(200).json({ message: 'Alineación guardada' });
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 router.post('/:clanId/auto-assign', async (req: Request, res: Response): Promise<void> => {
   try {
     const clan = await Clan.findById(req.params.clanId).select('leader officer member');
     if (!clan) { res.status(404).json({ message: 'Clan not found' }); return; }
-    if (!charIsOfficerOrLeader(clan, req.user!)) {
+    if (!charIsOfficerOrLeader(clan, req)) {
       res.status(403).json({ message: 'Se requiere ser líder u oficial del clan' }); return;
     }
 
@@ -664,7 +611,7 @@ router.post('/:clanId/auto-assign', async (req: Request, res: Response): Promise
       ? autoAssignAT(members)
       : autoAssignSW(members, formation ?? undefined);
     res.status(200).json(result);
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 export default router;

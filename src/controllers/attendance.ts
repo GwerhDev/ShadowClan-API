@@ -3,6 +3,7 @@ import Character from '../models/Character';
 import ShadowWar from '../models/ShadowWar';
 import Attendance from '../models/Attendance';
 import Cycle from '../models/Cycle';
+import { handleError } from '../helpers/http';
 
 const router = Router();
 
@@ -53,7 +54,7 @@ router.get('/character/:characterId', async (req: Request, res: Response): Promi
       cycleIsOpen: !!latestCycle && !latestCycle.endDate,
       totalActivities, attended, missed, unmarked, percentage,
     });
-  } catch { res.status(500).json({ error: 'Error al obtener la participación.' }); }
+  } catch (err) { handleError(res, err); }
 });
 
 export default router;

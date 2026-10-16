@@ -41,3 +41,73 @@ describe('isSystemAdmin', () => {
     expect(isSystemAdmin(makeUser('walker'))).toBe(false);
   });
 });
+
+import { ownsCharacter, sameId, escapeRegex } from '../helpers/clanScope';
+import { ownerFilter, parseDate } from '../helpers/ownerScope';
+
+describe('ownsCharacter', () => {
+  const charA = new Types.ObjectId();
+  const charB = new Types.ObjectId();
+  const user = { ...makeUser('user'), character: [charA] } as unknown as IUser;
+
+  it('accepts a character of the user (string or ObjectId)', () => {
+    expect(ownsCharacter(user, String(charA))).toBe(true);
+    expect(ownsCharacter(user, charA)).toBe(true);
+  });
+
+  it('rejects a foreign character', () => {
+    expect(ownsCharacter(user, String(charB))).toBe(false);
+  });
+
+  it('rejects empty ids', () => {
+    expect(ownsCharacter(user, undefined)).toBe(false);
+    expect(ownsCharacter(user, '')).toBe(false);
+  });
+});
+
+describe('sameId', () => {
+  it('compares ObjectIds, strings and populated docs', () => {
+    const id = new Types.ObjectId();
+    expect(sameId(id, String(id))).toBe(true);
+    expect(sameId({ _id: id }, id)).toBe(true);
+    expect(sameId(id, new Types.ObjectId())).toBe(false);
+  });
+
+  it('is false for null/undefined', () => {
+    expect(sameId(null, null)).toBe(false);
+    expect(sameId(undefined, 'x')).toBe(false);
+  });
+});
+
+describe('escapeRegex', () => {
+  it('escapes regex metacharacters', () => {
+    const raw = 'a.b*c(d)[e]';
+    expect(new RegExp(`^${escapeRegex(raw)}$`).test(raw)).toBe(true);
+    expect(new RegExp(`^${escapeRegex('a.b')}$`).test('axb')).toBe(false);
+  });
+});
+
+describe('ownerFilter', () => {
+  const charA = new Types.ObjectId();
+  const user = { ...makeUser('user'), character: [charA] } as unknown as IUser;
+
+  it('scopes to own character', () => {
+    expect(ownerFilter(user, String(charA))).toEqual({ character: String(charA) });
+  });
+
+  it('denies a foreign character', () => {
+    expect(ownerFilter(user, String(new Types.ObjectId()))).toBeNull();
+  });
+
+  it('falls back to the user when no character is given', () => {
+    expect(ownerFilter(user, undefined)).toEqual({ user: user._id });
+  });
+});
+
+describe('parseDate', () => {
+  it('parses valid dates and rejects invalid ones', () => {
+    expect(parseDate('2026-10-15')).toBeInstanceOf(Date);
+    expect(parseDate('not-a-date')).toBeNull();
+    expect(parseDate(undefined)).toBeNull();
+  });
+});

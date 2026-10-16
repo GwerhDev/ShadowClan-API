@@ -2,8 +2,8 @@ import 'dotenv/config';
 import http from 'http';
 import app from './app';
 import { DB } from './integrations/mongodb';
-import { config } from './config';
-import { init as initSocket, getIO } from './socket';
+import { config, allowedOriginList } from './config';
+import { init as initSocket, getIO, getUserClanIds } from './socket';
 import { decodeToken } from './integrations/jwt';
 
 interface SocketWithUser {
@@ -25,19 +25,8 @@ async function main(): Promise<void> {
 
   const httpServer = http.createServer(app);
 
-  let origins: string[] | false = false;
-  try {
-    const parsed: unknown = JSON.parse(config.allowedOrigins);
-    origins = Array.isArray(parsed) ? parsed.map(String) : [String(parsed)];
-  } catch {
-    origins = config.allowedOrigins
-      .split(',')
-      .map(o => o.trim())
-      .filter(Boolean);
-  }
-
   const io = initSocket(httpServer, {
-    origin: origins.length ? origins : false,
+    origin: allowedOriginList.length ? allowedOriginList : false,
     credentials: true,
   });
 
@@ -49,6 +38,9 @@ async function main(): Promise<void> {
       const token = match ? decodeURIComponent(match[1]) : null;
       if (!token) { next(new Error('No token')); return; }
       const decoded = await decodeToken(token);
+      const User = (await import('./models/User')).default;
+      const user = await User.findById(decoded.data.id).select('status');
+      if (!user || user.status !== 'active') { next(new Error('Auth failed')); return; }
       sock.userId = String(decoded.data.id);
       next();
     } catch {
@@ -64,14 +56,7 @@ async function main(): Promise<void> {
         sock.join(`dashboard:${sock.userId}`);
       }
       try {
-        const User      = (await import('./models/User')).default;
-        const Character = (await import('./models/Character')).default;
-        const userDoc   = await User.findById(sock.userId).select('character');
-        if (userDoc?.character?.length) {
-          const chars   = await Character.find({ _id: { $in: userDoc.character } }).select('clan');
-          const clanIds = [...new Set(chars.map(c => String(c.clan)).filter(id => id && id !== 'null' && id !== 'undefined'))];
-          for (const clanId of clanIds) sock.join(`clan:${clanId}`);
-        }
+        for (const clanId of await getUserClanIds(sock.userId)) sock.join(`clan:${clanId}`);
       } catch (e) {
         console.warn('Socket clan-room join error:', (e as Error).message);
       }

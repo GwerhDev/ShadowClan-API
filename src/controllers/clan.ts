@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import Clan from '../models/Clan';
 import { decodeToken } from '../integrations/jwt';
 import { message } from '../messages';
+import { handleError } from '../helpers/http';
 
 const router = Router();
 
@@ -16,8 +17,8 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     const query = name ? { name: { $regex: name, $options: 'i' } } : {};
     const clans = await Clan.find(query).select('_id name');
     res.status(200).json(clans);
-  } catch {
-    res.status(500).json({ error: message.user.error });
+  } catch (err) {
+    handleError(res, err);
   }
 });
 

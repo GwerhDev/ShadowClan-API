@@ -44,6 +44,21 @@ export const config: Config = {
   timezoneOffset: parseInt(env('TIMEZONE_OFFSET', '-3'), 10),
 };
 
+/**
+ * Lista exacta de orígenes permitidos. Acepta JSON (`["https://a","https://b"]`)
+ * o una lista separada por comas. Se compara por igualdad, nunca por substring.
+ */
+export function parseOrigins(raw: string): string[] {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return (Array.isArray(parsed) ? parsed : [parsed]).map(o => String(o).trim()).filter(Boolean);
+  } catch {
+    return raw.split(',').map(o => o.trim()).filter(Boolean);
+  }
+}
+
+export const allowedOriginList: string[] = parseOrigins(config.allowedOrigins);
+
 // Named exports for backward compat
 export const {
   port, environment, apiUrl, clientUrl, appClientUrl, dashboardUrl,

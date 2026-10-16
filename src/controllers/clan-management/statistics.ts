@@ -6,24 +6,13 @@ import Season from '../../models/Season';
 import Clan from '../../models/Clan';
 import Character from '../../models/Character';
 import { message } from '../../messages';
-import type { IUser, MatchResult } from '../../types';
-import { isSystemAdmin, getClanIdForCharacter } from '../../helpers/clanScope';
+import type { MatchResult } from '../../types';
+import { resolveClanRead } from '../../helpers/clanScope';
 import { Types } from 'mongoose';
+import { handleError } from '../../helpers/http';
 
 const router = Router();
 
-type ClanId = Types.ObjectId | null | false;
-
-async function resolveClanRead(user: IUser, characterId: string | undefined): Promise<ClanId> {
-  if (isSystemAdmin(user)) {
-    if (!characterId) return null;
-    return await getClanIdForCharacter(characterId);
-  }
-  const charIds = user.character.map(String);
-  if (!characterId || !charIds.includes(String(characterId))) return false;
-  const clanId = await getClanIdForCharacter(characterId);
-  return clanId ?? false;
-}
 
 const RESULTS = ['victory', 'defeat', 'draw'] as const;
 
@@ -110,7 +99,7 @@ router.get('/overview', async (req: Request, res: Response): Promise<void> => {
       cycleUsed,
       ...summary,
     });
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 // ── Overview summary: roster count + class breakdown + next activities ─────
@@ -168,7 +157,7 @@ router.get('/summary', async (req: Request, res: Response): Promise<void> => {
       nextAccursedTower: nextAccursedTower ? { date: nextAccursedTower.date, enemyClan: nextAccursedTower.enemyClan } : null,
       cyclesTotal,
     });
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 export default router;

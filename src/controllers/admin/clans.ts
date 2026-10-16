@@ -4,94 +4,32 @@ import * as XLSX from 'xlsx';
 import { Types } from 'mongoose';
 import Clan from '../../models/Clan';
 import Character from '../../models/Character';
-import { message } from '../../messages';
-import { calcScore } from '../../helpers/score';
-import ShadowWar from '../../models/ShadowWar';
-import Attendance from '../../models/Attendance';
-import { openMembership, closeMembership, updateOpenRole } from '../../helpers/clanMembership';
+import type { IClan } from '../../types';
+import { mergedScore } from '../../helpers/score';
+import { openMembership, closeMembership, rosterRoles, syncRosterChange } from '../../helpers/clanMembership';
+import { resolveClass, num, buildSwByDate, upsertAttendance } from '../../helpers/rosterImport';
+import { escapeRegex } from '../../helpers/clanScope';
+import { handleError } from '../../helpers/http';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
-
-const CLASS_MAP: Record<string, string> = {
-  'druida': 'druid',
-  'bárbaro': 'barbarian', 'barbaro': 'barbarian',
-  'caballero de sangre': 'bloodknight', 'caballero sangriento': 'bloodknight',
-  'guerrero divino': 'crusader',
-  'cazador de demonios': 'demonhunter',
-  'monje': 'monk',
-  'nigromante': 'necromancer',
-  'tempest': 'tempest',
-  'arcanista': 'wizard',
-  'conjurador': 'warlock',
-};
-const VALID_CLASS_VALUES = new Set(Object.values(CLASS_MAP));
-
-function resolveClass(raw: unknown): string | undefined {
-  if (!raw) return undefined;
-  const key = String(raw).trim().toLowerCase();
-  return CLASS_MAP[key] ?? (VALID_CLASS_VALUES.has(key) ? key : undefined);
-}
-function escapeRegex(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-function num(v: unknown): number | undefined {
-  const n = Number(v);
-  return isNaN(n) || v === '' || v === null || v === undefined ? undefined : n;
-}
-
-// ── Attendance import helpers ─────────────────────────────────────────────────
-const MONTH_MAP_ADMIN: Record<string, number> = {
-  ene:1,feb:2,mar:3,abr:4,may:5,jun:6,jul:7,ago:8,sep:9,oct:10,nov:11,dic:12
-};
-const NON_DATE_COLS_ADMIN = new Set(['Rank','Jugador','Armadura','Penetracion','Potencia','Resistencia','Resonancia','Score','Clase','Whatsapp','Observaciones','Asist']);
-
-function parseDateColAdmin(col: string, year: number): string | null {
-  const m = col.match(/^(\d{1,2})([a-z]+)$/i);
-  if (!m) return null;
-  const month = MONTH_MAP_ADMIN[m[2].toLowerCase()];
-  if (!month) return null;
-  const day = parseInt(m[1], 10);
-  return `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
-}
-
-async function buildSwByDateAdmin(rows: Record<string, unknown>[], clanId: unknown): Promise<Map<string, any>> {
-  const year    = new Date().getFullYear();
-  const allCols = rows.length ? Object.keys(rows[0]) : [];
-  const dateCols = allCols.filter(c => !NON_DATE_COLS_ADMIN.has(c) && parseDateColAdmin(c, year) !== null);
-  const map     = new Map<string, any>();
-  for (const col of dateCols) {
-    const dateStr = parseDateColAdmin(col, year)!;
-    const start   = new Date(dateStr + 'T00:00:00.000Z');
-    const end     = new Date(dateStr + 'T23:59:59.999Z');
-    const sw      = await ShadowWar.findOne({ clan: clanId, date: { $gte: start, $lte: end } }).select('_id date clan');
-    map.set(col, sw ?? null);
-  }
-  return map;
-}
-
-async function upsertAttendanceAdmin(
-  row: Record<string, unknown>,
-  characterId: unknown,
-  clanId: unknown,
-  swByDate: Map<string, any>,
-): Promise<void> {
-  for (const [col, sw] of swByDate) {
-    if (!sw || Number(row[col]) !== 1) continue;
-    await Attendance.findOneAndUpdate(
-      { shadowWar: sw._id, character: characterId },
-      { attended: true, clan: clanId, date: sw.date, activityType: 'shadow_war' },
-      { upsert: true },
-    );
-  }
-}
 
 const router = Router();
 const STATUS_ORDER: Record<string, number> = { claimed: 0, pending: 1, unclaimed: 2 };
 
 async function getClansSorted(query: Record<string, unknown> = {}, { page = 1, limit = 20 } = {}) {
-  const clans = await Clan.find(query).limit(limit).skip((page - 1) * limit).populate('leader').lean();
+  // Ordena por status en la BD (claimed → pending → unclaimed) y recién después pagina,
+  // para que el orden sea global y no solo dentro de cada página.
+  const statusBranches = Object.entries(STATUS_ORDER).map(([k, v]) => ({ case: { $eq: ['$status', k] }, then: v }));
+  const raw = await Clan.aggregate<IClan & { _id: Types.ObjectId }>([
+    { $match: query },
+    { $addFields: { _statusOrder: { $switch: { branches: statusBranches, default: 3 } } } },
+    { $sort: { _statusOrder: 1, name: 1 } },
+    { $skip: (page - 1) * limit },
+    { $limit: limit },
+    { $project: { _statusOrder: 0 } },
+  ]);
+  const clans = await Clan.populate(raw, { path: 'leader' }) as typeof raw;
   return clans
-    .sort((a, b) => (STATUS_ORDER[a.status ?? ''] ?? 3) - (STATUS_ORDER[b.status ?? ''] ?? 3))
     .map(clan => ({
       ...clan,
       totalMembers: (() => {
@@ -106,12 +44,6 @@ async function getClansSorted(query: Record<string, unknown> = {}, { page = 1, l
 
 router.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
-    // Ensure leader is never duplicated in member[] (self-healing for legacy data)
-    await Clan.updateMany(
-      { leader: { $exists: true, $ne: null }, $expr: { $in: ['$leader', '$member'] } },
-      [{ $set: { member: { $filter: { input: '$member', cond: { $ne: ['$$this', '$leader'] } } } } }],
-    ).catch(() => { /* non-critical, never break the response */ });
-
     const { q, page, limit } = req.query as { q?: string; page?: string; limit?: string };
     const pageNum  = Math.max(1, parseInt(page  ?? '1',  10));
     const limitNum = Math.min(100, Math.max(1, parseInt(limit ?? '20', 10)));
@@ -119,7 +51,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     const total    = await Clan.countDocuments(query);
     const data     = await getClansSorted(query, { page: pageNum, limit: limitNum });
     res.status(200).json({ data, total, page: pageNum, limit: limitNum, hasMore: pageNum * limitNum < total });
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 router.get('/:id', async (req: Request, res: Response): Promise<void> => {
@@ -130,7 +62,7 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
       .populate('member',  'name currentClass resonance status armor armorPenetration power resistance');
     if (!clan) { res.status(404).json({ message: 'Clan not found' }); return; }
     res.status(200).json(clan);
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 router.post('/', async (req: Request, res: Response): Promise<void> => {
@@ -138,27 +70,30 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     const { name } = req.body as { name?: string };
     await new Clan({ name }).save();
     res.status(201).json(await getClansSorted());
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 router.patch('/', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { _id, leader, officer, member } = req.body as { _id?: string; leader?: string; officer?: string[]; member?: string[] };
-    const prevClan    = await Clan.findById(_id).select('leader officer member');
-    const updatedClan = await Clan.findByIdAndUpdate(_id, req.body, { new: true });
+    const { _id, name, status, leader, officer, member } = req.body as { _id?: string; name?: string; status?: string; leader?: string | null; officer?: string[]; member?: string[] };
+    const prevClan = await Clan.findById(_id).select('leader officer member');
+    if (!prevClan) { res.status(404).json({ message: 'Clan not found' }); return; }
+
+    const update: Record<string, unknown> = {};
+    if (name    !== undefined) update.name    = String(name).trim();
+    if (status  !== undefined) {
+      if (!(status in STATUS_ORDER)) { res.status(400).json({ message: 'Estado inválido.' }); return; }
+      update.status = status;
+    }
+    if (leader  !== undefined) update.leader  = leader || null;
+    if (officer !== undefined) update.officer = (officer ?? []).map(String);
+    if (member  !== undefined) update.member  = (member ?? []).map(String);
+    const updatedClan = await Clan.findByIdAndUpdate(_id, update, { new: true });
     if (!updatedClan) { res.status(404).json({ message: 'Clan not found' }); return; }
 
-    const repairs: Promise<unknown>[] = [];
-    const newLeader = leader ? String(leader) : null;
-    if (newLeader && newLeader !== (prevClan?.leader ? String(prevClan.leader) : null)) {
-      repairs.push(Character.findByIdAndUpdate(newLeader, { clan: _id }));
-    }
-    for (const charId of [...new Set([...(officer ?? []).map(String), ...(member ?? []).map(String)])]) {
-      repairs.push(Character.findByIdAndUpdate(charId, { clan: _id }));
-    }
-    if (repairs.length) await Promise.allSettled(repairs);
+    await syncRosterChange(updatedClan._id, rosterRoles(prevClan), rosterRoles(updatedClan), req.user!._id);
     res.status(201).json(await getClansSorted());
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 router.patch('/:id/leader', async (req: Request, res: Response): Promise<void> => {
@@ -187,24 +122,35 @@ router.patch('/:id/leader', async (req: Request, res: Response): Promise<void> =
       }
     }
 
-    clan.leader = new (await import('mongoose')).Types.ObjectId(newLeaderId) as unknown as typeof clan.leader;
-    await clan.save();
+    const newLeaderChar = await Character.findById(newLeaderId).select('clan');
+    if (!newLeaderChar) { res.status(404).json({ message: 'Personaje no encontrado.' }); return; }
+    if (newLeaderChar.clan && String(newLeaderChar.clan) !== String(clan._id)) {
+      res.status(409).json({ message: 'El personaje pertenece a otro clan.' }); return;
+    }
 
-    // Repair Character.clan for the new leader
-    await Character.findByIdAndUpdate(newLeaderId, { clan: clan._id });
+    const before = rosterRoles(clan);
+    clan.leader = new Types.ObjectId(newLeaderId) as unknown as typeof clan.leader;
+    await clan.save();
+    await syncRosterChange(clan._id, before, rosterRoles(clan), req.user!._id);
 
     res.status(200).json(await getClansSorted());
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 router.delete('/:id/leader', async (req: Request, res: Response): Promise<void> => {
   try {
     const clan = await Clan.findById(req.params.id);
     if (!clan) { res.status(404).json({ message: 'Clan not found' }); return; }
+    const before = rosterRoles(clan);
+    // El exlíder sigue en el clan como miembro: así Character.clan y el historial quedan coherentes.
+    if (clan.leader && !clan.member.some(m => String(m) === String(clan.leader)) && !clan.officer.some(o => String(o) === String(clan.leader))) {
+      clan.member.push(clan.leader);
+    }
     clan.leader = undefined;
     await clan.save();
+    await syncRosterChange(clan._id, before, rosterRoles(clan), req.user!._id);
     res.status(200).json(await getClansSorted());
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 // ── Paginated members list ────────────────────────────────────────────────────
@@ -245,7 +191,7 @@ router.get('/:id/members', async (req: Request, res: Response): Promise<void> =>
       hasMore: page * limit < total,
       members: sliced.map(c => ({ ...c, role: roleLabel[String(c._id)] ?? 'member' })),
     });
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 // ── Sync clan membership from CSV / XLSX (admin, overwrites member[]) ─────────
@@ -275,7 +221,7 @@ router.post('/:id/sync', upload.single('file'), async (req: Request, res: Respon
     type SyncResult = { name: string; status: 'created' | 'updated' };
     const results: SyncResult[]          = [];
     const newMemberIds: Types.ObjectId[] = [];
-    const swByDate = await buildSwByDateAdmin(rows, clan._id);
+    const swByDate = await buildSwByDate(rows, clan._id);
 
     for (const row of rows) {
       const rawName = String(row['Jugador'] ?? '').trim();
@@ -294,9 +240,9 @@ router.post('/:id/sync', upload.single('file'), async (req: Request, res: Respon
       const privilegedId = privilegedByName.get(rawName.toLowerCase());
       if (privilegedId) {
         const priv = await Character.findById(privilegedId);
-        data.score = calcScore({ resonance: (data.resonance ?? priv?.resonance ?? 0) as number, armor: (data.armor ?? priv?.armor ?? 0) as number, armorPenetration: (data.armorPenetration ?? priv?.armorPenetration ?? 0) as number, power: (data.power ?? priv?.power ?? 0) as number, resistance: (data.resistance ?? priv?.resistance ?? 0) as number });
+        data.score = mergedScore(data, priv);
         await Character.findByIdAndUpdate(privilegedId, data);
-        await upsertAttendanceAdmin(row, privilegedId, clan._id, swByDate);
+        await upsertAttendance(row, privilegedId, clan._id, swByDate);
         results.push({ name: rawName, status: 'updated' });
         continue;
       }
@@ -304,16 +250,16 @@ router.post('/:id/sync', upload.single('file'), async (req: Request, res: Respon
       let char = await Character.findOne({ name: { $regex: `^${escapeRegex(rawName)}$`, $options: 'i' } });
 
       if (!char) {
-        data.score = calcScore({ resonance: (data.resonance ?? 0) as number, armor: (data.armor ?? 0) as number, armorPenetration: (data.armorPenetration ?? 0) as number, power: (data.power ?? 0) as number, resistance: (data.resistance ?? 0) as number });
+        data.score = mergedScore(data);
         char = await new Character({ name: rawName, ...data, status: 'unclaimed', clan: clan._id }).save();
         results.push({ name: rawName, status: 'created' });
       } else {
-        data.score = calcScore({ resonance: (data.resonance ?? char.resonance ?? 0) as number, armor: (data.armor ?? char.armor ?? 0) as number, armorPenetration: (data.armorPenetration ?? char.armorPenetration ?? 0) as number, power: (data.power ?? char.power ?? 0) as number, resistance: (data.resistance ?? char.resistance ?? 0) as number });
+        data.score = mergedScore(data, char);
         await Character.findByIdAndUpdate(char._id, { ...data, clan: clan._id });
         results.push({ name: rawName, status: 'updated' });
       }
 
-      await upsertAttendanceAdmin(row, char._id, clan._id, swByDate);
+      await upsertAttendance(row, char._id, clan._id, swByDate);
       await openMembership(char._id, clan._id, 'member');
       newMemberIds.push(char._id as Types.ObjectId);
     }
@@ -333,7 +279,7 @@ router.post('/:id/sync', upload.single('file'), async (req: Request, res: Respon
 
     res.status(200).json({ processed: results.length, removed: removedIds.length, results });
   } catch (err) {
-    res.status(500).json({ error: message.user.error, details: (err as Error).message });
+    handleError(res, err);
   }
 });
 
@@ -350,6 +296,11 @@ router.patch('/:id/members/:memberId/role', async (req: Request, res: Response):
 
     const memberId = String(req.params.memberId);
     const leaderId = clan.leader ? String(clan.leader) : null;
+    const inClan = leaderId === memberId
+      || clan.officer.some(o => String(o) === memberId)
+      || clan.member.some(m => String(m) === memberId);
+    if (!inClan) { res.status(404).json({ message: 'El personaje no pertenece a este clan.' }); return; }
+    const before = rosterRoles(clan);
 
     if (role === 'leader') {
       if (leaderId === memberId) { res.status(200).json({ ok: true }); return; }
@@ -381,10 +332,10 @@ router.patch('/:id/members/:memberId/role', async (req: Request, res: Response):
       }
       await clan.save();
     }
-    await updateOpenRole(memberId, clan._id, role as 'leader' | 'officer' | 'member');
+    await syncRosterChange(clan._id, before, rosterRoles(clan), req.user!._id);
 
     res.status(200).json({ ok: true });
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
@@ -419,7 +370,7 @@ router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
     } catch { /* socket failure never breaks response */ }
 
     res.status(201).json(await getClansSorted());
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 export default router;

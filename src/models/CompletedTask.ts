@@ -9,4 +9,7 @@ const completedTaskSchema = new Schema<ICompletedTask>({
   tasks:     [{ type: Schema.Types.ObjectId, ref: 'Task' }],
 });
 
+completedTaskSchema.index({ character: 1, date: 1, type: 1 });
+completedTaskSchema.index({ user: 1, date: 1, type: 1 });
+
 export default model<ICompletedTask>('CompletedTask', completedTaskSchema);

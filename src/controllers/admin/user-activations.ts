@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import User from '../../models/User';
-import { message } from '../../messages';
 import { status as userStatus } from '../../misc/consts-user-model';
+import { handleError } from '../../helpers/http';
 
 const router = Router();
 
@@ -9,7 +9,7 @@ router.get('/', async (_req: Request, res: Response): Promise<void> => {
   try {
     const users = await User.find({ status: userStatus.pending }).select('battletag role status createdAt');
     res.status(200).json(users);
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
@@ -28,9 +28,8 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
       message: action === 'activate' ? 'Usuario activado' : 'Usuario rechazado',
       user: { _id: user._id, battletag: user.battletag, status: user.status },
     });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: message.user.error });
+  } catch (err) {
+    handleError(res, err);
   }
 });
 

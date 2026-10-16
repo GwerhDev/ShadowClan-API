@@ -1,8 +1,16 @@
 import { Router, type Request, type Response } from 'express';
 import ShadowWar from '../../models/ShadowWar';
-import { message } from '../../messages';
+import { handleError } from '../../helpers/http';
 
 const router = Router();
+
+const SW_FIELDS = ['clan', 'date', 'enemyClan', 'result', 'battle', 'finalBattle', 'completed', 'confirmed', 'declined'] as const;
+function pickSW(body: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const k of SW_FIELDS) if (body[k] !== undefined) out[k] = body[k];
+  if (out.enemyClan === '') out.enemyClan = null;
+  return out;
+}
 
 const populate = (q: ReturnType<typeof ShadowWar.findById>) => q
   .populate('enemyClan').populate('confirmed')
@@ -18,7 +26,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     const total = await ShadowWar.countDocuments();
     const data  = await ShadowWar.find().sort({ date: -1 }).skip((page - 1) * limit).limit(limit).populate('enemyClan');
     res.status(200).json({ total, page, limit, pages: Math.ceil(total / limit), data });
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 router.get('/by-date', async (req: Request, res: Response): Promise<void> => {
@@ -29,7 +37,7 @@ router.get('/by-date', async (req: Request, res: Response): Promise<void> => {
     const sw = await populate(ShadowWar.findOne({ date: { $gte: start, $lte: end } }) as ReturnType<typeof ShadowWar.findById>);
     if (!sw) { res.status(404).json({ message: 'Shadow War not found' }); return; }
     res.status(200).json(sw);
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 router.get('/:id', async (req: Request, res: Response): Promise<void> => {
@@ -37,28 +45,26 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
     const sw = await populate(ShadowWar.findById(req.params.id));
     if (!sw) { res.status(404).json({ message: 'Shadow War not found' }); return; }
     res.status(200).json(sw);
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 router.post('/', async (req: Request, res: Response): Promise<void> => {
   try {
-    const sw = new ShadowWar(req.body);
+    const sw = new ShadowWar(pickSW(req.body ?? {}));
     await sw.save();
     res.status(201).json(sw);
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
     const sw = await populate(ShadowWar.findById(req.params.id));
     if (!sw) { res.status(404).json({ message: 'Shadow War not found' }); return; }
-    if (req.body.enemyClan === '') req.body.enemyClan = null;
-    Object.assign(sw, req.body);
+    Object.assign(sw, pickSW(req.body ?? {}));
     const updated = await (sw as unknown as { save(): Promise<unknown> }).save();
     res.status(200).json(updated);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: message.user.error, details: (error as Error).message });
+  } catch (err) {
+    handleError(res, err);
   }
 });
 
@@ -67,7 +73,7 @@ router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
     const deleted = await ShadowWar.findByIdAndDelete(req.params.id);
     if (!deleted) { res.status(404).json({ message: 'Shadow War not found' }); return; }
     res.status(200).json({ message: 'Shadow War deleted successfully' });
-  } catch { res.status(500).json({ error: message.user.error }); }
+  } catch (err) { handleError(res, err); }
 });
 
 export default router;
