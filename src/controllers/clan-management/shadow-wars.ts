@@ -10,6 +10,7 @@ import { handleError, parse } from '../../helpers/http';
 import * as V from '../../validation/schemas';
 import { populateShadowWar as pop, applyResponse, SW_CATEGORIES } from '../../helpers/activity';
 import { emitToClan, emitToCharacterOwners } from '../../socket';
+import { completeExpiredActivities, completeExpiredById, isPastActivityDate } from '../../helpers/autoComplete';
 
 const router = Router();
 
@@ -20,6 +21,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     if (clanId === false) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
     const page  = parseInt((req.query.page  as string) ?? '1',  10) || 1;
     const limit = parseInt((req.query.limit as string) ?? '10', 10) || 10;
+    await completeExpiredActivities(clanId);
     const filter = clanId ? { clan: clanId } : {};
     const total  = await ShadowWar.countDocuments(filter);
     const data   = await ShadowWar.find(filter).sort({ date: -1 }).skip((page - 1) * limit).limit(limit).populate('enemyClan');
@@ -35,6 +37,7 @@ router.get('/by-date', async (req: Request, res: Response): Promise<void> => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr ?? '')) { res.status(400).json({ message: 'date (YYYY-MM-DD) requerido.' }); return; }
     const start = new Date(dateStr + 'T00:00:00.000Z');
     const end   = new Date(dateStr + 'T23:59:59.999Z');
+    await completeExpiredActivities(clanId);
     const filter = clanId ? { clan: clanId, date: { $gte: start, $lte: end } } : { date: { $gte: start, $lte: end } };
     const sw = await pop(ShadowWar.findOne(filter));
     if (!sw) { res.status(404).json({ message: 'Shadow War not found' }); return; }
@@ -44,6 +47,7 @@ router.get('/by-date', async (req: Request, res: Response): Promise<void> => {
 
 router.get('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
+    await completeExpiredById('shadow_war', req.params.id);
     const sw = await pop(ShadowWar.findById(req.params.id));
     if (!sw) { res.status(404).json({ message: 'Shadow War not found' }); return; }
     if (!(await canAccessClanDoc(req.user!, (sw as { clan?: unknown }).clan, req.query.characterId as string, 'read'))) {
@@ -73,7 +77,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
 
 router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { characterId, date, enemyClan, result, battle, finalBattle, completed } = parse(V.shadowWarPatch, req.body);
+    const { characterId, date, enemyClan, result, battle, finalBattle } = parse(V.shadowWarPatch, req.body);
     const sw = await ShadowWar.findById(req.params.id);
     if (!sw) { res.status(404).json({ message: 'Shadow War not found' }); return; }
     if (!(await canAccessClanDoc(req.user!, sw.clan, characterId, 'write'))) {
@@ -92,7 +96,8 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
     if (result    !== undefined) sw.result = result;
     if (battle    !== undefined) sw.battle = battle as any;
     if (finalBattle !== undefined) (sw as any).finalBattle = finalBattle;
-    if (completed !== undefined) sw.completed = completed;
+    // `completed` no se edita a mano: depende de la fecha (helpers/autoComplete).
+    if (date !== undefined) sw.completed = isPastActivityDate(sw.date);
     const updated    = await sw.save();
     const updatedPop = await pop(ShadowWar.findById(updated._id));
     const newlyAssigned: Array<{_id: unknown; name?: string}> = [];

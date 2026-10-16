@@ -53,7 +53,6 @@ export const shadowWarPatch = z.object({
   result:      matchResult.optional(),
   battle:      battle.optional(),
   finalBattle: battle.nullable().optional(),
-  completed:   z.boolean().optional(),
 });
 
 export const towerCreate = z.object({
@@ -70,7 +69,6 @@ export const towerPatch = z.object({
   enemyClan:   optionalNullableId,
   roster:      towerRoster.optional(),
   finalRoster: towerRoster.nullable().optional(),
-  completed:   z.boolean().optional(),
   result:      matchResult.optional(),
 });
 

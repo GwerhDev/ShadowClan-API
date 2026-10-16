@@ -11,6 +11,7 @@ import { handleError, parse } from '../../helpers/http';
 import * as V from '../../validation/schemas';
 import { populateTower as pop, applyResponse } from '../../helpers/activity';
 import { emitToClan, emitToCharacterOwners } from '../../socket';
+import { completeExpiredActivities, completeExpiredById, isPastActivityDate } from '../../helpers/autoComplete';
 
 const router = Router();
 
@@ -19,6 +20,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
     const clanId = await resolveClanRead(req.user!, (req.query.characterId as string));
     if (clanId === false) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
+    await completeExpiredActivities(clanId);
     const filter = { completed: { $ne: true }, ...(clanId ? { clan: clanId } : {}) };
     const towers = await pop(AccursedTower.find(filter).sort({ date: 1 }));
     res.status(200).json(towers);
@@ -30,6 +32,7 @@ router.get('/active', async (req: Request, res: Response): Promise<void> => {
     const clanId = await resolveClanRead(req.user!, (req.query.characterId as string));
     // Sin clan resoluble (o personaje ajeno) → vacío; nunca devolver torres de otros clanes.
     if (clanId === false) { res.status(200).json([]); return; }
+    await completeExpiredActivities(clanId);
     const baseFilter = { active: true, completed: { $ne: true }, ...(clanId ? { clan: clanId } : {}) };
     const now = new Date();
     let towers = await pop(AccursedTower.find({ ...baseFilter, date: { $gte: now } }).sort({ date: 1 }));
@@ -94,6 +97,7 @@ router.post('/:id/respond', async (req: Request, res: Response): Promise<void> =
 
 router.get('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
+    await completeExpiredById('accursed_tower', req.params.id);
     const tower = await pop(AccursedTower.findById(req.params.id));
     if (!tower) { res.status(404).json({ message: 'Torre no encontrada.' }); return; }
     if (!(await canAccessClanDoc(req.user!, (tower as { clan?: unknown }).clan, req.query.characterId as string, 'read'))) {
@@ -107,7 +111,7 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
     const tower = await AccursedTower.findById(req.params.id);
     if (!tower) { res.status(404).json({ message: 'Torre no encontrada.' }); return; }
-    const { characterId, towerNumber, date, roster, enemyClan, completed, result, finalRoster } = parse(V.towerPatch, req.body);
+    const { characterId, towerNumber, date, roster, enemyClan, result, finalRoster } = parse(V.towerPatch, req.body);
     if (!(await canAccessClanDoc(req.user!, tower.clan, characterId, 'write'))) {
       res.status(403).json({ message: message.admin.permissionDenied }); return;
     }
@@ -122,7 +126,8 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
     if (enemyClan !== undefined) tower.enemyClan = (enemyClan ?? undefined) as any;
     if (roster)                  tower.roster      = roster as typeof tower.roster;
     if (finalRoster !== undefined) (tower as any).finalRoster = finalRoster;
-    if (completed !== undefined) tower.completed = completed;
+    // `completed` no se edita a mano: depende de la fecha (helpers/autoComplete).
+    if (date !== undefined) tower.completed = isPastActivityDate(tower.date);
     if (result !== undefined)    tower.result    = result;
     await tower.save();
     const updatedTower = await pop(AccursedTower.findById(tower._id));

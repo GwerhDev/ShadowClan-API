@@ -4,7 +4,7 @@ import { handleError } from '../../helpers/http';
 
 const router = Router();
 
-const SW_FIELDS = ['clan', 'date', 'enemyClan', 'result', 'battle', 'finalBattle', 'completed', 'confirmed', 'declined'] as const;
+const SW_FIELDS = ['clan', 'date', 'enemyClan', 'result', 'battle', 'finalBattle', 'confirmed', 'declined'] as const;
 function pickSW(body: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const k of SW_FIELDS) if (body[k] !== undefined) out[k] = body[k];

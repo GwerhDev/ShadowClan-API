@@ -4,6 +4,7 @@ import AccursedTower from '../../models/AccursedTower';
 import Clan          from '../../models/Clan';
 import { resolveClanRead, resolveClanWrite } from '../../helpers/clanScope';
 import { handleError } from '../../helpers/http';
+import { completeExpiredActivities } from '../../helpers/autoComplete';
 
 const router = Router();
 
@@ -19,6 +20,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     // Admins sin characterId → sin filtro (caso Dashboard).
     const clanId = await resolveClanRead(req.user!, req.query.characterId as string | undefined);
     if (clanId === false) { res.status(200).json({ total: 0, page, limit, pages: 0, data: [] }); return; }
+    await completeExpiredActivities(clanId);
     let clanFilter: Record<string, unknown> = clanId ? { clan: clanId } : {};
 
     // Search by enemy clan name

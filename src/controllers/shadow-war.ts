@@ -5,6 +5,7 @@ import { resolveClanRead, ownsCharacter, isCharacterInClan } from '../helpers/cl
 import { populateShadowWar, applyResponse, SW_CATEGORIES } from '../helpers/activity';
 import { handleError, badRequest, forbidden, notFound } from '../helpers/http';
 import { emitToClan } from '../socket';
+import { completeExpiredActivities } from '../helpers/autoComplete';
 
 const router = Router();
 
@@ -17,6 +18,7 @@ router.get('/active', async (req: Request, res: Response): Promise<void> => {
     // Solo personajes propios (salvo admins); sin clan → null.
     const clanId = await resolveClanRead(req.user!, characterId);
     if (!clanId) { res.json(null); return; }
+    await completeExpiredActivities(clanId);
     const base = { clan: clanId, completed: { $ne: true } };
     let sw = await populateShadowWar(ShadowWar.findOne({ ...base, date: { $gte: new Date() } }).sort({ date: 1 }));
     if (!sw) sw = await populateShadowWar(ShadowWar.findOne(base).sort({ date: -1 }));

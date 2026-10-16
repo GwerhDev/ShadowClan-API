@@ -5,6 +5,7 @@ import { resolveClanRead, ownsCharacter, isCharacterInClan } from '../helpers/cl
 import { populateTower, applyResponse } from '../helpers/activity';
 import { handleError, badRequest, forbidden, notFound } from '../helpers/http';
 import { emitToClan } from '../socket';
+import { completeExpiredActivities } from '../helpers/autoComplete';
 
 const router = Router();
 
@@ -17,6 +18,7 @@ router.get('/active', async (req: Request, res: Response): Promise<void> => {
     // Solo personajes propios (salvo admins); sin clan → [].
     const clanId = await resolveClanRead(req.user!, characterId);
     if (!clanId) { res.json([]); return; }
+    await completeExpiredActivities(clanId);
     const base = { clan: clanId, completed: { $ne: true } };
     let towers = await populateTower(AccursedTower.find({ ...base, date: { $gte: new Date() } }).sort({ date: 1 }));
     if (!(towers as unknown[]).length) towers = await populateTower(AccursedTower.find(base).sort({ date: -1 }));
