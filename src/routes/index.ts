@@ -32,6 +32,8 @@ router.use('/admin',           authorizeRoles([roles.superAdmin, roles.admin]), 
 router.use('/clan-management', authorizeRoles([roles.user, roles.leader, roles.officer, roles.admin, roles.superAdmin]), clanManagement);
 router.use('/attendance',      authorizeRoles([roles.user, roles.leader, roles.officer, roles.admin, roles.superAdmin]), attendance);
 
+// /auth/logout: la cookie de refresh (path /auth) solo llega a rutas bajo /auth.
+router.use('/auth/logout',                 logout);
 router.use('/auth',                        auth);
 router.use('/clan',                        clan);
 router.use('/task',                        task);

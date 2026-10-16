@@ -3,7 +3,7 @@ import passport from 'passport';
 import User from '../models/User';
 import { loginBnet } from '../integrations/bnet';
 import { clientUrl, appClientUrl } from '../config';
-import { createToken } from '../integrations/jwt';
+import { startSession } from '../helpers/session';
 import { status } from '../misc/consts-user-model';
 
 passport.use('login-bnet', loginBnet as Parameters<typeof passport.use>[1]);
@@ -42,14 +42,8 @@ router.get('/success', async (req: Request, res: Response): Promise<void> => {
     if (userExist?.status === status.inactive) { res.status(400).redirect(`${clientUrl}/login/user-inactive`); return; }
 
     if (userExist?.status === status.active) {
-      const TOKEN_DAYS = 3;
-      const token = await createToken({ id: String(userExist._id) }, TOKEN_DAYS);
-      const isProd = process.env.NODE_ENV === 'production';
-      const maxAge = TOKEN_DAYS * 86_400_000; // misma vida que el JWT
-      res.cookie('u_tkn', token, isProd
-        ? { httpOnly: true, secure: true, sameSite: 'none', domain: '.shadowclan.cl', path: '/', maxAge }
-        : { httpOnly: true, secure: false, sameSite: 'lax', path: '/', maxAge }
-      );
+      // Sesión por dispositivo: access token corto + refresh token (3 días desde el último uso).
+      await startSession(req, res, userExist._id);
       res.status(200).redirect(appClientUrl);
     } else {
       res.status(400).redirect(`${clientUrl}/login/user-not-found`);

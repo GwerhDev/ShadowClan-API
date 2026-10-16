@@ -5,6 +5,7 @@ import Clan from '../../models/Clan';
 import { message } from '../../messages';
 import { roles, status } from '../../misc/consts-user-model';
 import { closeMembership } from '../../helpers/clanMembership';
+import { revokeUserSessions } from '../../helpers/session';
 import { handleError } from '../../helpers/http';
 
 const VALID_ROLES    = Object.values(roles);
@@ -49,6 +50,8 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
     }
     const updated = await User.findByIdAndUpdate(req.params.id, update);
     if (!updated) { res.status(404).json({ message: message.user.notfound }); return; }
+    // Desactivar a un usuario cierra todas sus sesiones (dejan de poder refrescar).
+    if (update.status !== undefined && update.status !== 'active') await revokeUserSessions(updated._id);
     res.status(200).json({ message: message.admin.updateuser });
   } catch (err) { handleError(res, err); }
 });
@@ -70,6 +73,7 @@ router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
     }
 
     await User.findByIdAndDelete(req.params.id);
+    await revokeUserSessions(user._id);
     res.status(200).json({ message: message.admin.deleteuser });
   } catch (err) { handleError(res, err); }
 });

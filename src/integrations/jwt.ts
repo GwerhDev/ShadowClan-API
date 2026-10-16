@@ -13,6 +13,12 @@ export async function createToken(data: { id: string }, days: number): Promise<s
   return jwt.sign(payload, secret());
 }
 
+/** Access token de vida corta (minutos). La sesión larga la mantiene el refresh token. */
+export async function createAccessToken(userId: string, minutes: number): Promise<string> {
+  const payload = { data: { id: userId }, typ: 'access', exp: Math.floor(Date.now() / 1000) + minutes * 60 };
+  return jwt.sign(payload, secret());
+}
+
 export async function decodeToken(token: string): Promise<JwtPayload> {
   const decoded = jwt.verify(token, secret());
   if (decoded instanceof Error) throw decoded;
