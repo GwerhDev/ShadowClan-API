@@ -255,22 +255,18 @@ router.get('/shadow-war/:shadowWarId', async (req: Request, res: Response): Prom
     }));
 
     // Resumen sobre la plantilla completa (no depende de los filtros).
-    const summary = {
-      total:    all.length,
-      attended: all.filter(m => m.attended === true).length,
-      absent:   all.filter(m => m.attended === false).length,
-      unmarked: all.filter(m => m.attended === null).length,
-    };
+    // La asistencia es binaria: asistió o no (sin marcar). Un registro attended=false cuenta como sin marcar.
+    const attendedCount = all.filter(m => m.attended === true).length;
+    const summary = { total: all.length, attended: attendedCount, unmarked: all.length - attendedCount };
 
-    // Filtros: q (nombre) y status = attended | absent | unmarked | all.
+    // Filtros: q (nombre) y status = attended | unmarked | all.
     const q      = typeof req.query.q === 'string' ? req.query.q.trim() : '';
     const status = typeof req.query.status === 'string' ? req.query.status : 'all';
     const nameRe = q ? new RegExp(escapeRegex(q), 'i') : null;
     const members = all.filter(m =>
       (!nameRe || nameRe.test(m.name)) &&
       (status === 'attended' ? m.attended === true
-        : status === 'absent' ? m.attended === false
-        : status === 'unmarked' ? m.attended === null
+        : status === 'unmarked' ? m.attended !== true
         : true));
 
     res.status(200).json({
