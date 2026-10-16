@@ -9,7 +9,12 @@ jobs:
   deploy:
     name: Deploy app
     runs-on: ubuntu-latest
-    concurrency: deploy-group    # optional: ensure only one action runs at a time
+    # Un deploy colgado (p. ej. subiendo capas al registry de Fly) se corta solo.
+    timeout-minutes: 20
+    # Solo un deploy a la vez; uno nuevo cancela al anterior en vez de competir con él.
+    concurrency:
+      group: deploy-group
+      cancel-in-progress: true
     steps:
       - uses: actions/checkout@v4
       - uses: superfly/flyctl-actions/setup-flyctl@master
