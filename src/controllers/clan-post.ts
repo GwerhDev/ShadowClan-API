@@ -4,6 +4,7 @@ import Character from '../models/Character';
 import Clan from '../models/Clan';
 import ShadowWar from '../models/ShadowWar';
 import AccursedTower from '../models/AccursedTower';
+import VigilOfBlades from '../models/VigilOfBlades';
 import { message } from '../messages';
 import { getUser } from '../helpers/getUser';
 import { isSystemAdmin, ownsCharacter, isLeaderOrOfficerOf, sameId } from '../helpers/clanScope';
@@ -19,7 +20,7 @@ async function canModerate(user: IUser, postClan: unknown, characterId: string |
 }
 
 const router = Router();
-const VALID_SOURCES: ClanPostSource[] = ['general', 'shadow_war', 'accursed_tower'];
+const VALID_SOURCES: ClanPostSource[] = ['general', 'shadow_war', 'accursed_tower', 'vigil_of_blades'];
 
 router.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -53,11 +54,14 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 
     const swIds    = base.filter(p => p.source === 'shadow_war'    && p.referenceId).map(p => p.referenceId);
     const towerIds = base.filter(p => p.source === 'accursed_tower' && p.referenceId).map(p => p.referenceId);
+    const vigilIds = base.filter(p => p.source === 'vigil_of_blades' && p.referenceId).map(p => p.referenceId);
 
-    const [shadowWars, towers] = await Promise.all([
+    const [shadowWars, towers, vigils] = await Promise.all([
       swIds.length    ? ShadowWar.find({ _id: { $in: swIds } }).select('confirmed date enemyClan').populate('enemyClan', 'name').lean()    : [],
       towerIds.length ? AccursedTower.find({ _id: { $in: towerIds } }).select('confirmed date towerNumber enemyClan').populate('enemyClan', 'name').lean() : [],
+      vigilIds.length ? VigilOfBlades.find({ _id: { $in: vigilIds } }).select('confirmed date enemyClan').populate('enemyClan', 'name').lean() : [],
     ]);
+    const vigilMap = Object.fromEntries(vigils.map(v => [String(v._id), v]));
 
     const swMap    = Object.fromEntries(shadowWars.map(sw => [String(sw._id), sw]));
     const towerMap = Object.fromEntries(towers.map(t => [String(t._id), t]));
@@ -66,6 +70,10 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       if (post.source === 'shadow_war' && post.referenceId) {
         const sw = swMap[String(post.referenceId)] as (typeof shadowWars)[0] & { enemyClan?: { name?: string } } | undefined;
         return { ...post, instanceConfirmed: (sw?.confirmed ?? []).map(String), instanceDate: sw?.date, instanceEnemyClan: sw?.enemyClan?.name ?? null };
+      }
+      if (post.source === 'vigil_of_blades' && post.referenceId) {
+        const v = vigilMap[String(post.referenceId)] as (typeof vigils)[0] & { enemyClan?: { name?: string } } | undefined;
+        return { ...post, instanceConfirmed: (v?.confirmed ?? []).map(String), instanceDate: v?.date, instanceEnemyClan: v?.enemyClan?.name ?? null };
       }
       if (post.source === 'accursed_tower' && post.referenceId) {
         const t = towerMap[String(post.referenceId)] as (typeof towers)[0] & { enemyClan?: { name?: string } } | undefined;
@@ -87,7 +95,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
 
     const { content, characterId, source, referenceId } = parse(V.clanPostCreate, req.body);
 
-    const hasReference = source === 'shadow_war' || source === 'accursed_tower';
+    const hasReference = source === 'shadow_war' || source === 'accursed_tower' || source === 'vigil_of_blades';
     if (!content?.trim() && !hasReference) { res.status(400).json({ message: 'El contenido no puede estar vacío.' }); return; }
 
     const charIds = user.character.map(String);
@@ -99,7 +107,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     const resolvedSource: ClanPostSource = VALID_SOURCES.includes(source as ClanPostSource) ? (source as ClanPostSource) : 'general';
     if (resolvedSource !== 'general') {
       // La referencia debe existir y ser del mismo clan.
-      const RefModel = resolvedSource === 'shadow_war' ? ShadowWar : AccursedTower;
+      const RefModel = resolvedSource === 'shadow_war' ? ShadowWar : resolvedSource === 'vigil_of_blades' ? VigilOfBlades : AccursedTower;
       const ref = referenceId ? await (RefModel as typeof ShadowWar).findById(referenceId).select('clan').lean() : null;
       if (!ref || !sameId(ref.clan, char.clan)) { res.status(400).json({ message: 'Referencia inválida.' }); return; }
     }

@@ -7,7 +7,8 @@ const matchSchema = new Schema<IMatch>({
   result: { type: String },
 });
 
-const shadowWarSchema = new Schema<IShadowWar>({
+// Exportado: la Vigilia de Espadas usa exactamente la misma estructura (models/VigilOfBlades).
+export const shadowWarSchema = new Schema<IShadowWar>({
   clan:      { type: Schema.Types.ObjectId, ref: 'Clan', default: null },
   date:      { type: Date, required: true },
   result:    { type: String },

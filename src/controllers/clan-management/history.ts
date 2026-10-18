@@ -1,12 +1,20 @@
 import { Router, type Request, type Response } from 'express';
 import ShadowWar     from '../../models/ShadowWar';
 import AccursedTower from '../../models/AccursedTower';
+import VigilOfBlades from '../../models/VigilOfBlades';
 import Clan          from '../../models/Clan';
 import { resolveClanRead, resolveClanWrite } from '../../helpers/clanScope';
 import { handleError } from '../../helpers/http';
 import { completeExpiredActivities } from '../../helpers/autoComplete';
 
 const router = Router();
+
+type HistoryType = 'shadow_war' | 'accursed_tower' | 'vigil_of_blades';
+const HISTORY_SOURCES: Array<{ type: HistoryType; Model: typeof ShadowWar }> = [
+  { type: 'shadow_war',      Model: ShadowWar },
+  { type: 'accursed_tower',  Model: AccursedTower as unknown as typeof ShadowWar },
+  { type: 'vigil_of_blades', Model: VigilOfBlades },
+];
 
 router.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -30,35 +38,24 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       clanFilter = { ...clanFilter, enemyClan: { $in: ids } };
     }
 
-    if (type === 'shadow_war') {
-      const total = await ShadowWar.countDocuments(clanFilter);
-      const data  = await ShadowWar.find(clanFilter).sort({ date: -1 }).skip(skip).limit(limit).populate('enemyClan');
-      res.status(200).json({ total, page, limit, pages: Math.ceil(total / limit), data: data.map(d => ({ ...d.toObject(), type: 'shadow_war' })) });
-      return;
-    }
-
-    if (type === 'accursed_tower') {
-      const total = await AccursedTower.countDocuments(clanFilter);
-      const data  = await AccursedTower.find(clanFilter).sort({ date: -1 }).skip(skip).limit(limit).populate('enemyClan');
-      res.status(200).json({ total, page, limit, pages: Math.ceil(total / limit), data: data.map(d => ({ ...d.toObject(), type: 'accursed_tower' })) });
-      return;
-    }
+    // Fuentes del historial; `type` filtra a una, 'all' las combina por fecha.
+    const sources = HISTORY_SOURCES.filter(src => type === 'all' || src.type === type);
+    if (!sources.length) { res.status(400).json({ message: 'Tipo inválido.' }); return; }
 
     // Los primeros (skip + limit) del listado combinado están siempre dentro de los
     // primeros (skip + limit) de cada colección → no hace falta cargar todo en memoria.
     const window = skip + limit;
-    const [swTotal, atTotal, swTop, atTop] = await Promise.all([
-      ShadowWar.countDocuments(clanFilter),
-      AccursedTower.countDocuments(clanFilter),
-      ShadowWar.find(clanFilter).sort({ date: -1 }).limit(window).populate('enemyClan'),
-      AccursedTower.find(clanFilter).sort({ date: -1 }).limit(window).populate('enemyClan'),
-    ]);
-    const combined = [
-      ...swTop.map(d => ({ ...d.toObject(), type: 'shadow_war' as const })),
-      ...atTop.map(d => ({ ...d.toObject(), type: 'accursed_tower' as const })),
-    ].sort((a, b) => new Date(b.date as Date).getTime() - new Date(a.date as Date).getTime());
+    const perSource = await Promise.all(sources.map(async src => {
+      const [count, top] = await Promise.all([
+        src.Model.countDocuments(clanFilter),
+        src.Model.find(clanFilter).sort({ date: -1 }).limit(window).populate('enemyClan'),
+      ]);
+      return { count, items: top.map(d => ({ ...d.toObject(), type: src.type })) };
+    }));
+    const combined = perSource.flatMap(p => p.items)
+      .sort((a, b) => new Date(b.date as Date).getTime() - new Date(a.date as Date).getTime());
 
-    const total = swTotal + atTotal;
+    const total = perSource.reduce((sum, p) => sum + p.count, 0);
     res.status(200).json({ total, page, limit, pages: Math.ceil(total / limit), data: combined.slice(skip, skip + limit) });
   } catch (err) { handleError(res, err); }
 });

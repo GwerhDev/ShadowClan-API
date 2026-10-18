@@ -35,3 +35,20 @@ describe('isPastActivityDate', () => {
     expect(isPastActivityDate('2026-10-20T12:00:00Z', at('2026-10-16T23:30:00Z'))).toBe(false);
   });
 });
+
+describe('Vigilia de Espadas (término 20:30 local)', () => {
+  it('a las 20:15 locales la vigilia del día sigue activa; a las 20:30 ya terminó', () => {
+    // 18-oct 20:15 local = 23:15 UTC ; 20:30 local = 23:30 UTC
+    expect(isPastActivityDate('2026-10-18T12:00:00Z', at('2026-10-18T23:15:00Z'), 'vigil_of_blades')).toBe(false);
+    expect(isPastActivityDate('2026-10-18T12:00:00Z', at('2026-10-18T23:30:00Z'), 'vigil_of_blades')).toBe(true);
+  });
+
+  it('a la misma hora una Guerra Sombría (20:00) ya está terminada', () => {
+    expect(isPastActivityDate('2026-10-18T12:00:00Z', at('2026-10-18T23:15:00Z'), 'shadow_war')).toBe(true);
+  });
+
+  it('completionCutoff respeta los minutos', () => {
+    expect(completionCutoff(at('2026-10-18T23:29:00Z'), -3, 20, 30).toISOString()).toBe('2026-10-18T00:00:00.000Z');
+    expect(completionCutoff(at('2026-10-18T23:30:00Z'), -3, 20, 30).toISOString()).toBe('2026-10-19T00:00:00.000Z');
+  });
+});

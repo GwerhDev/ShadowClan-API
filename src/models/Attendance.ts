@@ -3,7 +3,8 @@ import type { IAttendance } from '../types';
 
 const attendanceSchema = new Schema<IAttendance>({
   clan:         { type: Schema.Types.ObjectId, ref: 'Clan', required: true },
-  activityType: { type: String, enum: ['shadow_war'], default: 'shadow_war', required: true },
+  activityType: { type: String, enum: ['shadow_war', 'vigil_of_blades'], default: 'shadow_war', required: true },
+  // Instancia marcada: ShadowWar o VigilOfBlades según `activityType` (los ObjectId no colisionan).
   shadowWar:    { type: Schema.Types.ObjectId, ref: 'ShadowWar', required: true },
   date:         { type: Date, required: true },
   character:    { type: Schema.Types.ObjectId, ref: 'Character', required: true },

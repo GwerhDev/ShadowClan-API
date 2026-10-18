@@ -12,7 +12,7 @@ export type MemberStatus = 'activo' | 'inactivo' | 'retirado' | 'pendiente';
 export type ClanStatus = 'unclaimed' | 'pending' | 'claimed';
 
 export type MatchResult = 'victory' | 'defeat' | 'draw' | 'pending';
-export type ClanPostSource = 'general' | 'shadow_war' | 'accursed_tower';
+export type ClanPostSource = 'general' | 'shadow_war' | 'accursed_tower' | 'vigil_of_blades';
 
 export type InvitationRole = 'officer' | 'member';
 export type RequestStatus = 'pending' | 'accepted' | 'rejected';
@@ -91,7 +91,8 @@ export interface IShadowWar extends Document {
 
 export interface IAttendance extends Document {
   clan: Types.ObjectId;
-  activityType: 'shadow_war';
+  /** shadow_war → `shadowWar` apunta a ShadowWar; vigil_of_blades → apunta a VigilOfBlades. */
+  activityType: 'shadow_war' | 'vigil_of_blades';
   shadowWar: Types.ObjectId;
   date: Date;
   character: Types.ObjectId;

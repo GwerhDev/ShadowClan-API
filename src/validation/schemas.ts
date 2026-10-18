@@ -135,7 +135,7 @@ export const invitationCreate = z.object({
 export const clanPostCreate = z.object({
   characterId: objectId,
   content:     z.string().max(1000).optional().default(''),
-  source:      z.enum(['general', 'shadow_war', 'accursed_tower']).optional(),
+  source:      z.enum(['general', 'shadow_war', 'accursed_tower', 'vigil_of_blades']).optional(),
   referenceId: objectId.nullable().optional(),
 });
 

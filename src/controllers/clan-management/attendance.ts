@@ -6,6 +6,7 @@ import Character from '../../models/Character';
 import Attendance from '../../models/Attendance';
 import Cycle from '../../models/Cycle';
 import ClanMembership from '../../models/ClanMembership';
+import { SHADOW_WAR, VIGIL_OF_BLADES, type SWKindConfig } from '../../helpers/activityKinds';
 import { message } from '../../messages';
 import { isSystemAdmin, resolveClanRead, getClanForActiveChar, isCharacterInClan, escapeRegex } from '../../helpers/clanScope';
 import { handleError, parse } from '../../helpers/http';
@@ -235,12 +236,17 @@ router.get('/member/:characterId/summary', async (req: Request, res: Response): 
   } catch (err) { handleError(res, err); }
 });
 
-// ── Attendance for a single Shadow War ──────────────────────────────────────
+// ── Asistencia de una instancia (Guerra Sombría o Vigilia de Espadas) ───────
+// La Vigilia lleva su propio registro (activityType 'vigil_of_blades'): no entra en los
+// porcentajes ni ciclos de Guerra Sombría, que solo consideran ids de ShadowWar.
 
-router.get('/shadow-war/:shadowWarId', async (req: Request, res: Response): Promise<void> => {
+function registerInstanceAttendance(path: string, cfg: SWKindConfig) {
+  const InstanceModel = cfg.Model;
+
+router.get(`/${path}/:shadowWarId`, async (req: Request, res: Response): Promise<void> => {
   try {
-    const sw = await ShadowWar.findById(req.params.shadowWarId).select('date enemyClan result clan').populate('enemyClan');
-    if (!sw) { res.status(404).json({ message: 'Shadow War not found' }); return; }
+    const sw = await InstanceModel.findById(req.params.shadowWarId).select('date enemyClan result clan').populate('enemyClan');
+    if (!sw) { res.status(404).json({ message: cfg.notFound }); return; }
     if (!isSystemAdmin(req.user!)) {
       const clanId = await resolveClanRead(req.user!, req.query.characterId as string);
       if (clanId === false) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
@@ -277,13 +283,13 @@ router.get('/shadow-war/:shadowWarId', async (req: Request, res: Response): Prom
   } catch (err) { handleError(res, err); }
 });
 
-router.patch('/shadow-war/:shadowWarId/members/:memberId', async (req: Request, res: Response): Promise<void> => {
+router.patch(`/${path}/:shadowWarId/members/:memberId`, async (req: Request, res: Response): Promise<void> => {
   try {
     const { characterId, attended } = req.body as { characterId?: string; attended?: boolean };
     if (typeof attended !== 'boolean') { res.status(400).json({ message: 'attended (boolean) requerido.' }); return; }
 
-    const sw = await ShadowWar.findById(req.params.shadowWarId).select('date clan');
-    if (!sw) { res.status(404).json({ message: 'Shadow War not found' }); return; }
+    const sw = await InstanceModel.findById(req.params.shadowWarId).select('date clan');
+    if (!sw) { res.status(404).json({ message: cfg.notFound }); return; }
 
     const clanId = await getClanForActiveChar(req.user!, characterId);
     if (clanId === false) { res.status(403).json({ message: message.admin.permissionDenied }); return; }
@@ -296,19 +302,34 @@ router.patch('/shadow-war/:shadowWarId/members/:memberId', async (req: Request, 
 
     const record = await Attendance.findOneAndUpdate(
       { shadowWar: sw._id, character: req.params.memberId },
-      { attended, clan: sw.clan, date: sw.date, markedBy: req.user!._id },
+      { attended, clan: sw.clan, date: sw.date, markedBy: req.user!._id, activityType: cfg.kind },
       { upsert: true, new: true },
     );
     res.status(200).json({ character: req.params.memberId, attended: record.attended });
   } catch (err) { handleError(res, err); }
 });
+}
 
-// ── Weekly attendance view (jueves + sábado) ────────────────────────────────
+registerInstanceAttendance('shadow-war', SHADOW_WAR);
+registerInstanceAttendance('vigil-of-blades', VIGIL_OF_BLADES);
 
-const WEEK_DAYS = [
-  { key: 'thursday', label: 'Jueves', offset: 3 },
-  { key: 'saturday', label: 'Sábado', offset: 5 },
-] as const;
+// ── Weekly attendance view ──────────────────────────────────────────────────
+// Guerra Sombría: jueves + sábado. Vigilia de Espadas: domingo (20:00 server).
+
+type WeekDay = { key: string; label: string; offset: number };
+const WEEK_LAYOUTS: Record<'shadow_war' | 'vigil_of_blades', { cfg: SWKindConfig; days: WeekDay[] }> = {
+  shadow_war: {
+    cfg: SHADOW_WAR,
+    days: [
+      { key: 'thursday', label: 'Jueves', offset: 3 },
+      { key: 'saturday', label: 'Sábado', offset: 5 },
+    ],
+  },
+  vigil_of_blades: {
+    cfg: VIGIL_OF_BLADES,
+    days: [{ key: 'sunday', label: 'Domingo', offset: 6 }],
+  },
+};
 
 router.get('/week', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -318,6 +339,8 @@ router.get('/week', async (req: Request, res: Response): Promise<void> => {
 
     const refDate = (req.query.date as string) || toDateStr(new Date());
     const monday  = mondayOf(refDate);
+    const layout  = WEEK_LAYOUTS[req.query.activityType === 'vigil_of_blades' ? 'vigil_of_blades' : 'shadow_war'];
+    const WEEK_DAYS = layout.days;
 
     const { q, page: rawPage, limit: rawLimit } = req.query as Record<string, string>;
     const page  = Math.max(1, parseInt(rawPage  ?? '1',  10));
@@ -339,7 +362,7 @@ router.get('/week', async (req: Request, res: Response): Promise<void> => {
       const dayStr  = toDateStr(dayDate);
       const start   = parseDayStart(dayStr);
       const end     = parseDayEnd(dayStr);
-      const sw = await ShadowWar.findOne({ clan: clanId, date: { $gte: start, $lte: end } })
+      const sw = await layout.cfg.Model.findOne({ clan: clanId, date: { $gte: start, $lte: end } })
         .select('date enemyClan result').populate('enemyClan');
 
       let attendanceMap = new Map<string, boolean>();
@@ -366,6 +389,7 @@ router.get('/week', async (req: Request, res: Response): Promise<void> => {
 
     res.status(200).json({
       weekStart: toDateStr(monday),
+      activityType: layout.cfg.kind,
       days,
       members,
       total,
