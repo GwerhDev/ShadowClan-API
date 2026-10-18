@@ -1,6 +1,5 @@
 import { Router, type Request, type Response } from 'express';
 import multer from 'multer';
-import * as XLSX from 'xlsx';
 import { Types } from 'mongoose';
 import Clan from '../../models/Clan';
 import Character from '../../models/Character';
@@ -11,7 +10,9 @@ import type { IClan } from '../../types';
 import { isSystemAdmin, ownsCharacter, sameId, escapeRegex } from '../../helpers/clanScope';
 import { mergedScore } from '../../helpers/score';
 import { openMembership, closeMembership, updateOpenRole } from '../../helpers/clanMembership';
-import { resolveClass, num, buildSwByDate, upsertAttendance } from '../../helpers/rosterImport';
+import { parseRosterFile, RosterFormatError, findWarsByDate, datesWithoutWar, upsertAttendance } from '../../helpers/rosterImport';
+import { previewRosterSync, applyRosterSync, SyncResolutionError, type SyncResolutions } from '../../helpers/rosterSync';
+import { badRequest } from '../../helpers/http';
 import ClanMembership from '../../models/ClanMembership';
 import { handleError, parse } from '../../helpers/http';
 import * as V from '../../validation/schemas';
@@ -19,6 +20,31 @@ import * as V from '../../validation/schemas';
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 const router = Router();
+
+/** Lee el archivo subido; errores de formato → 400 con mensaje claro. */
+function parseUploadedRoster(file: Express.Multer.File | undefined) {
+  if (!file) throw badRequest('No se recibió ningún archivo.');
+  try {
+    return parseRosterFile(file.buffer);
+  } catch (e) {
+    if (e instanceof RosterFormatError) throw badRequest(e.message);
+    throw badRequest('No se pudo leer el archivo. Verifica que sea un .xlsx o .csv válido.');
+  }
+}
+
+/** `resolutions` llega como JSON en el multipart: { "<nombre en minúsculas>": { action, characterId? } }. */
+function parseResolutions(raw: unknown): SyncResolutions {
+  if (!raw) return {};
+  try {
+    const obj = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    const out: SyncResolutions = {};
+    for (const [name, r] of Object.entries(obj as Record<string, any>)) {
+      if (r?.action === 'replace' && typeof r.characterId === 'string') out[name.trim().toLowerCase()] = { action: 'replace', characterId: r.characterId };
+      else out[name.trim().toLowerCase()] = { action: 'create' };
+    }
+    return out;
+  } catch { throw badRequest('Formato de decisiones inválido.'); }
+}
 
 const populateClan = (q: ReturnType<typeof Clan.findById>) =>
   q.populate('leader').populate('officer').populate('member');
@@ -338,32 +364,17 @@ router.post('/:clanId/bulk-import', upload.single('file'), async (req: Request, 
     if (!clan) { res.status(404).json({ message: 'Clan not found' }); return; }
     if (!charIsOfficerOrLeader(clan, req)) { res.status(403).json({ message: 'Se requiere ser líder u oficial del clan' }); return; }
 
-    // Parse file (supports .csv and .xlsx)
-    const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
-    const sheet    = workbook.Sheets[workbook.SheetNames[0]];
-    const rows     = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' });
+    const parsed = parseUploadedRoster(req.file);
 
     type ImportResult = { name: string; status: 'created' | 'updated' | 'invited' | 'skipped'; reason?: string };
     const results: ImportResult[] = [];
-    const swByDate = await buildSwByDate(rows, clan._id);
+    const wars = await findWarsByDate(parsed.dateColumns.map(d => d.date), clan._id);
 
-    for (const row of rows) {
-      const rawName = String(row['Jugador'] ?? '').trim();
-      if (!rawName) continue;
-
-      const data = {
-        resonance:        num(row['Resonancia']),
-        armor:            num(row['Armadura']),
-        armorPenetration: num(row['Penetracion']),
-        power:            num(row['Potencia']),
-        resistance:       num(row['Resistencia']),
-        currentClass:     resolveClass(row['Clase']),
-        whatsapp:         row['Whatsapp'] ? String(row['Whatsapp']).trim() : undefined,
-      };
-
-      // Remove undefined keys so we don't wipe existing values with undefined
-      const update: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(data)) { if (v !== undefined) update[k] = v; }
+    for (const parsedRow of parsed.rows) {
+      const rawName = parsedRow.name;
+      const data = parsedRow.data as { currentClass?: string; resonance?: number };
+      // Solo los campos presentes (no pisa valores existentes con vacíos).
+      const update: Record<string, unknown> = { ...parsedRow.data };
 
       // Find existing character by name (case-insensitive)
       const existing = await Character.findOne({ name: { $regex: `^${escapeRegex(rawName)}$`, $options: 'i' } });
@@ -375,7 +386,7 @@ router.post('/:clanId/bulk-import', upload.single('file'), async (req: Request, 
         clan.member.push(char._id as Types.ObjectId);
         await clan.save();
         await openMembership(char._id, clan._id, 'member');
-        await upsertAttendance(row, char._id, clan._id, swByDate);
+        await upsertAttendance(parsedRow.attendedDates, char._id, clan._id, wars);
         results.push({ name: rawName, status: 'created' });
         continue;
       }
@@ -419,7 +430,7 @@ router.post('/:clanId/bulk-import', upload.single('file'), async (req: Request, 
       // Character is unclaimed or in this clan → update stats
       update.score = mergedScore(update, existing);
       await Character.findByIdAndUpdate(existing._id, update);
-      await upsertAttendance(row, existing._id, clan._id, swByDate);
+      await upsertAttendance(parsedRow.attendedDates, existing._id, clan._id, wars);
 
       // Add to clan if not already a member
       if (!inThisClan) {
@@ -444,102 +455,41 @@ router.post('/:clanId/bulk-import', upload.single('file'), async (req: Request, 
       results.push({ name: rawName, status: 'updated' });
     }
 
-    res.status(200).json({ processed: results.length, results });
+    res.status(200).json({ processed: results.length, results, warnings: { ...parsed.warnings, datesWithoutWar: datesWithoutWar(parsed, wars) } });
   } catch (err) {
     handleError(res, err);
   }
 });
 
 // ── Sync (overwrite) clan members from CSV / XLSX ────────────────────────────
-router.post('/:clanId/sync', upload.single('file'), async (req: Request, res: Response): Promise<void> => {
+// ── Sincronizar plantilla desde planilla (reemplaza member[]) ────────────────
+// Paso 1: vista previa (no escribe): resumen, personajes nuevos y candidatos a reemplazar.
+router.post('/:clanId/sync/preview', upload.single('file'), async (req: Request, res: Response): Promise<void> => {
   try {
-    if (!req.file) { res.status(400).json({ message: 'No se recibió ningún archivo.' }); return; }
-
     const clan = await Clan.findById(req.params.clanId);
     if (!clan) { res.status(404).json({ message: 'Clan not found' }); return; }
     if (!charIsOfficerOrLeader(clan, req)) { res.status(403).json({ message: 'Se requiere ser líder u oficial del clan' }); return; }
+    const parsed = parseUploadedRoster(req.file);
+    res.status(200).json(await previewRosterSync(clan, parsed));
+  } catch (err) { handleError(res, err); }
+});
 
-    const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
-    const sheet    = workbook.Sheets[workbook.SheetNames[0]];
-    const rows     = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' });
-
-    // Preload leader + officer characters by ID so we can match them by name reliably
-    const privilegedIds = [
-      ...(clan.leader ? [String(clan.leader)] : []),
-      ...(clan.officer ?? []).map(String),
-    ];
-    const privilegedChars = privilegedIds.length
-      ? await Character.find({ _id: { $in: privilegedIds } }).select('_id name')
-      : [];
-    // lowercase name → character ID (authoritative lookup)
-    const privilegedByName = new Map(
-      privilegedChars.map(c => [c.name.trim().toLowerCase(), String(c._id)])
-    );
-
-    type SyncResult = { name: string; status: 'created' | 'updated' };
-    const results: SyncResult[]          = [];
-    const newMemberIds: Types.ObjectId[] = [];
-    const swByDate = await buildSwByDate(rows, clan._id);
-
-    for (const row of rows) {
-      const rawName = String(row['Jugador'] ?? '').trim();
-      if (!rawName) continue;
-
-      const data: Record<string, unknown> = {};
-      const rv  = num(row['Resonancia']);   if (rv  !== undefined) data.resonance        = rv;
-      const arm = num(row['Armadura']);     if (arm !== undefined) data.armor             = arm;
-      const pen = num(row['Penetracion']); if (pen !== undefined) data.armorPenetration  = pen;
-      const pow = num(row['Potencia']);     if (pow !== undefined) data.power             = pow;
-      const res = num(row['Resistencia']); if (res !== undefined) data.resistance        = res;
-      const cls = resolveClass(row['Clase']); if (cls !== undefined) data.currentClass   = cls;
-      const wa  = row['Whatsapp'];         if (wa && String(wa).trim()) data.whatsapp    = String(wa).trim();
-
-      // Check if this row is a privileged character (leader/officer) by name
-      const privilegedId = privilegedByName.get(rawName.toLowerCase());
-      if (privilegedId) {
-        // Update their stats but keep their role — never add to member[]
-        const priv = await Character.findById(privilegedId);
-        data.score = mergedScore(data, priv);
-        await Character.findByIdAndUpdate(privilegedId, data);
-        await upsertAttendance(row, privilegedId, clan._id, swByDate);
-        results.push({ name: rawName, status: 'updated' });
-        continue;
-      }
-
-      let char = await Character.findOne({ name: { $regex: `^${escapeRegex(rawName)}$`, $options: 'i' } });
-
-      if (!char) {
-        data.score = mergedScore(data);
-        char = await new Character({ name: rawName, ...data, status: 'unclaimed', clan: clan._id }).save();
-        results.push({ name: rawName, status: 'created' });
-      } else {
-        data.score = mergedScore(data, char);
-        await Character.findByIdAndUpdate(char._id, { ...data, clan: clan._id });
-        results.push({ name: rawName, status: 'updated' });
-      }
-
-      await upsertAttendance(row, char._id, clan._id, swByDate);
-      await openMembership(char._id, clan._id, 'member');
-      newMemberIds.push(char._id as Types.ObjectId);
+// Paso 2: aplica la sincronización con las decisiones para cada personaje nuevo
+// (crear o reemplazar a un miembro saliente / exmiembro, conservando su historial).
+router.post('/:clanId/sync', upload.single('file'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const clan = await Clan.findById(req.params.clanId);
+    if (!clan) { res.status(404).json({ message: 'Clan not found' }); return; }
+    if (!charIsOfficerOrLeader(clan, req)) { res.status(403).json({ message: 'Se requiere ser líder u oficial del clan' }); return; }
+    const parsed = parseUploadedRoster(req.file);
+    const resolutions = parseResolutions((req.body as Record<string, unknown>)?.resolutions);
+    try {
+      res.status(200).json(await applyRosterSync(clan, parsed, resolutions, req.user!._id));
+    } catch (e) {
+      if (e instanceof SyncResolutionError) throw badRequest(e.message);
+      throw e;
     }
-
-    // Remove clan ref from characters that are no longer in the file (exclude leader/officer)
-    const privilegedIdSet = new Set(privilegedIds);
-    const removedIds = (clan.member ?? []).map(String).filter(id =>
-      !newMemberIds.some(n => String(n) === id) && !privilegedIdSet.has(id)
-    );
-    if (removedIds.length) {
-      await Character.updateMany({ _id: { $in: removedIds } }, { $unset: { clan: '' } });
-      await Promise.all(removedIds.map(id => closeMembership(id, clan._id)));
-    }
-
-    clan.member = newMemberIds;
-    await clan.save();
-
-    res.status(200).json({ processed: results.length, removed: removedIds.length, results });
-  } catch (err) {
-    handleError(res, err);
-  }
+  } catch (err) { handleError(res, err); }
 });
 
 router.patch('/:clanId/saved-roster', async (req: Request, res: Response): Promise<void> => {

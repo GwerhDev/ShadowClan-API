@@ -1,13 +1,12 @@
 import { Router, type Request, type Response } from 'express';
 import multer from 'multer';
-import * as XLSX from 'xlsx';
 import { Types } from 'mongoose';
 import Clan from '../../models/Clan';
 import Character from '../../models/Character';
 import type { IClan } from '../../types';
-import { mergedScore } from '../../helpers/score';
-import { openMembership, closeMembership, rosterRoles, syncRosterChange } from '../../helpers/clanMembership';
-import { resolveClass, num, buildSwByDate, upsertAttendance } from '../../helpers/rosterImport';
+import { closeMembership, rosterRoles, syncRosterChange } from '../../helpers/clanMembership';
+import { parseRosterFile, RosterFormatError } from '../../helpers/rosterImport';
+import { applyRosterSync } from '../../helpers/rosterSync';
 import { escapeRegex } from '../../helpers/clanScope';
 import { handleError } from '../../helpers/http';
 
@@ -197,93 +196,17 @@ router.get('/:id/members', async (req: Request, res: Response): Promise<void> =>
 // ── Sync clan membership from CSV / XLSX (admin, overwrites member[]) ─────────
 router.post('/:id/sync', upload.single('file'), async (req: Request, res: Response): Promise<void> => {
   try {
-    if (!req.file) { res.status(400).json({ message: 'No se recibió ningún archivo.' }); return; }
-
     const clan = await Clan.findById(req.params.id);
     if (!clan) { res.status(404).json({ message: 'Clan not found' }); return; }
-
-    const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
-    const sheet    = workbook.Sheets[workbook.SheetNames[0]];
-    const rows     = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' });
-
-    // Preload leader + officer characters by ID for reliable name-based matching
-    const privilegedIds = [
-      ...(clan.leader ? [String(clan.leader)] : []),
-      ...(clan.officer ?? []).map(String),
-    ];
-    const privilegedChars = privilegedIds.length
-      ? await Character.find({ _id: { $in: privilegedIds } }).select('_id name')
-      : [];
-    const privilegedByName = new Map(
-      privilegedChars.map(c => [c.name.trim().toLowerCase(), String(c._id)])
-    );
-
-    type SyncResult = { name: string; status: 'created' | 'updated' };
-    const results: SyncResult[]          = [];
-    const newMemberIds: Types.ObjectId[] = [];
-    const swByDate = await buildSwByDate(rows, clan._id);
-
-    for (const row of rows) {
-      const rawName = String(row['Jugador'] ?? '').trim();
-      if (!rawName) continue;
-
-      const data: Record<string, unknown> = {};
-      const res2 = num(row['Resonancia']);   if (res2  !== undefined) data.resonance        = res2;
-      const arm  = num(row['Armadura']);     if (arm   !== undefined) data.armor             = arm;
-      const pen  = num(row['Penetracion']); if (pen   !== undefined) data.armorPenetration  = pen;
-      const pow  = num(row['Potencia']);     if (pow   !== undefined) data.power             = pow;
-      const res3 = num(row['Resistencia']); if (res3  !== undefined) data.resistance        = res3;
-      const cls  = resolveClass(row['Clase']); if (cls !== undefined) data.currentClass     = cls;
-      const wa   = row['Whatsapp'];          if (wa && String(wa).trim()) data.whatsapp     = String(wa).trim();
-
-      // Leader/officer: update stats only, never add to member[]
-      const privilegedId = privilegedByName.get(rawName.toLowerCase());
-      if (privilegedId) {
-        const priv = await Character.findById(privilegedId);
-        data.score = mergedScore(data, priv);
-        await Character.findByIdAndUpdate(privilegedId, data);
-        await upsertAttendance(row, privilegedId, clan._id, swByDate);
-        results.push({ name: rawName, status: 'updated' });
-        continue;
-      }
-
-      let char = await Character.findOne({ name: { $regex: `^${escapeRegex(rawName)}$`, $options: 'i' } });
-
-      if (!char) {
-        data.score = mergedScore(data);
-        char = await new Character({ name: rawName, ...data, status: 'unclaimed', clan: clan._id }).save();
-        results.push({ name: rawName, status: 'created' });
-      } else {
-        data.score = mergedScore(data, char);
-        await Character.findByIdAndUpdate(char._id, { ...data, clan: clan._id });
-        results.push({ name: rawName, status: 'updated' });
-      }
-
-      await upsertAttendance(row, char._id, clan._id, swByDate);
-      await openMembership(char._id, clan._id, 'member');
-      newMemberIds.push(char._id as Types.ObjectId);
-    }
-
-    // Characters previously in member[] but NOT in the file get removed (exclude leader/officer)
-    const privilegedIdSet = new Set(privilegedIds);
-    const removedIds = (clan.member ?? []).map(String).filter(id =>
-      !newMemberIds.some(nid => String(nid) === id) && !privilegedIdSet.has(id)
-    );
-    if (removedIds.length) {
-      await Character.updateMany({ _id: { $in: removedIds } }, { $unset: { clan: '' } });
-      await Promise.all(removedIds.map(id => closeMembership(id, clan._id)));
-    }
-
-    clan.member = newMemberIds;
-    await clan.save();
-
-    res.status(200).json({ processed: results.length, removed: removedIds.length, results });
-  } catch (err) {
-    handleError(res, err);
-  }
+    let parsed;
+    try { parsed = req.file ? parseRosterFile(req.file.buffer) : null; }
+    catch (e) { res.status(400).json({ message: e instanceof RosterFormatError ? e.message : 'No se pudo leer el archivo.' }); return; }
+    if (!parsed) { res.status(400).json({ message: 'No se recibió ningún archivo.' }); return; }
+    // Dashboard: sin paso de revisión, los personajes nuevos se crean.
+    res.status(200).json(await applyRosterSync(clan, parsed, {}, req.user!._id));
+  } catch (err) { handleError(res, err); }
 });
 
-// ── Change member role (officer ↔ member, or promote to leader) ───────────────
 router.patch('/:id/members/:memberId/role', async (req: Request, res: Response): Promise<void> => {
   try {
     const { role } = req.body as { role?: string };
