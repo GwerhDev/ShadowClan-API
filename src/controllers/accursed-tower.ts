@@ -20,8 +20,10 @@ router.get('/active', async (req: Request, res: Response): Promise<void> => {
     if (!clanId) { res.json([]); return; }
     await completeExpiredActivities(clanId);
     const base = { clan: clanId, completed: { $ne: true } };
-    let towers = await populateTower(AccursedTower.find({ ...base, date: { $gte: new Date() } }).sort({ date: 1 }));
-    if (!(towers as unknown[]).length) towers = await populateTower(AccursedTower.find(base).sort({ date: -1 }));
+    // Las vencidas ya se completaron arriba (completeExpiredActivities), así que la activa es
+    // la no completada más antigua. No usar `date >= now`: las instancias se guardan a las
+    // 12:00Z (09:00 local) y la de hoy dejaría de cumplirlo desde esa hora.
+    const towers = await populateTower(AccursedTower.find(base).sort({ date: 1 }));
     res.json(towers);
   } catch (err) { handleError(res, err, 'GET /accursed-tower/active'); }
 });

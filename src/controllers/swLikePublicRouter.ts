@@ -29,8 +29,10 @@ export function createSWPublicRouter(cfg: SWKindConfig): Router {
       if (!clanId) { res.json(null); return; }
       await completeExpiredActivities(clanId);
       const filter = { clan: clanId, completed: { $ne: true } };
-      let doc = await populateShadowWar(Model.findOne({ ...filter, date: { $gte: new Date() } }).sort({ date: 1 }) as never);
-      if (!doc) doc = await populateShadowWar(Model.findOne(filter).sort({ date: -1 }) as never);
+      // Las vencidas ya se completaron arriba (completeExpiredActivities), así que la activa es
+      // la no completada más antigua. No usar `date >= now`: las instancias se guardan a las
+      // 12:00Z (09:00 local) y la de hoy dejaría de cumplirlo desde esa hora.
+      const doc = await populateShadowWar(Model.findOne(filter).sort({ date: 1 }) as never);
       res.json(doc ?? null);
     } catch (err) { handleError(res, err, `GET ${base}/active`); }
   });
