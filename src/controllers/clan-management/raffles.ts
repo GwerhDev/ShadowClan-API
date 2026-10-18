@@ -128,14 +128,20 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
   } catch (err) { handleError(res, err); }
 });
 
-/** Elimina un sorteo del historial del clan (también sus avisos pendientes a los ganadores). */
-router.delete('/:raffleId', async (req: Request, res: Response): Promise<void> => {
-  try {
-    const clanId = await managedClan(req, req.query.characterId as string | undefined);
-    const raffle = await Raffle.findOneAndDelete({ _id: req.params.raffleId, clan: clanId });
-    if (!raffle) throw notFound('Sorteo no encontrado.');
-    res.status(200).json({ message: 'Sorteo eliminado.' });
-  } catch (err) { handleError(res, err); }
-});
+/**
+ * Elimina un sorteo del historial del clan (también sus avisos pendientes a los ganadores).
+ * Solo fuera de producción: en producción el historial no se borra, para que nadie pueda
+ * repetir un sorteo hasta obtener otro ganador.
+ */
+if (process.env.NODE_ENV !== 'production') {
+  router.delete('/:raffleId', async (req: Request, res: Response): Promise<void> => {
+    try {
+      const clanId = await managedClan(req, req.query.characterId as string | undefined);
+      const raffle = await Raffle.findOneAndDelete({ _id: req.params.raffleId, clan: clanId });
+      if (!raffle) throw notFound('Sorteo no encontrado.');
+      res.status(200).json({ message: 'Sorteo eliminado.' });
+    } catch (err) { handleError(res, err); }
+  });
+}
 
 export default router;
