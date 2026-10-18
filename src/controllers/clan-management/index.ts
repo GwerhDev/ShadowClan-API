@@ -7,6 +7,7 @@ import history      from './history';
 import attendance   from './attendance';
 import statistics   from './statistics';
 import seasons      from './seasons';
+import raffles      from './raffles';
 
 const router = Router();
 
@@ -18,5 +19,6 @@ router.use('/history',        history);
 router.use('/attendance',     attendance);
 router.use('/statistics',     statistics);
 router.use('/seasons',        seasons);
+router.use('/raffles',        raffles);
 
 export default router;

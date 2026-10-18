@@ -26,6 +26,7 @@ import characterClaim           from '../controllers/character-claim';
 import characterCreationRequest from '../controllers/character-creation-request';
 import clanCreationRequest      from '../controllers/clan-creation-request';
 import clanClaimRequest         from '../controllers/clan-claim-request';
+import raffle                   from '../controllers/raffle';
 
 const router = Router();
 
@@ -56,5 +57,6 @@ router.use('/character-claim',             characterClaim);
 router.use('/character-creation-request',  characterCreationRequest);
 router.use('/clan-creation-request',       clanCreationRequest);
 router.use('/clan-claim-request',          clanClaimRequest);
+router.use('/raffle',                      raffle);
 
 export default router;

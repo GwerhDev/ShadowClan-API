@@ -148,3 +148,43 @@ export const clanRequestCreate = z.object({
   characterId: objectId,
   clanId:      objectId,
 });
+
+// ── Sorteos ───────────────────────────────────────────────────────────────────
+
+export const prizeCreate = z.object({
+  name:        z.string().trim().min(1).max(80),
+  description: z.string().trim().max(500).optional(),
+  active:      z.boolean().optional(),
+});
+
+export const prizePatch = prizeCreate.partial();
+
+const raffleRule = z.object({
+  activity: z.enum(['shadow_war', 'vigil_of_blades']),
+  mode:     z.enum(['count', 'percent']),
+  min:      z.number().int().min(0).max(1000),
+}).refine(r => r.mode !== 'percent' || r.min <= 100, { message: 'El porcentaje mínimo no puede superar 100.', path: ['min'] });
+
+export const raffleCriteria = z.object({
+  range:   z.enum(['30', '60', '90', 'cycle']),
+  cycleId: objectId.optional(),
+  rules:   z.array(raffleRule).max(2)
+    .refine(rs => new Set(rs.map(r => r.activity)).size === rs.length, { message: 'Una regla por actividad.' }),
+  includeStaff: z.boolean().optional().default(false),
+}).refine(c => c.range !== 'cycle' || !!c.cycleId, { message: 'Selecciona un ciclo.', path: ['cycleId'] });
+
+export const raffleEligible = z.object({
+  characterId: objectId,
+  criteria:    raffleCriteria,
+});
+
+export const raffleDraw = z.object({
+  characterId:    objectId,
+  /** Premios en orden de sorteo (se puede repetir uno si hay varias unidades). */
+  prizeIds:       z.array(objectId).min(1, 'Agrega al menos un premio.').max(20),
+  participantIds: z.array(objectId).min(1, 'Selecciona al menos un participante.').max(300),
+  criteria:       raffleCriteria,
+}).refine(d => new Set(d.participantIds).size >= d.prizeIds.length, {
+  message: 'Hay más premios que participantes: cada persona puede ganar un solo premio.',
+  path: ['prizeIds'],
+});

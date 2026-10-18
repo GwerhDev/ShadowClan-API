@@ -235,3 +235,53 @@ export interface ICharacterCreationRequest extends Document {
   createdAt: Date;
   updatedAt: Date;
 }
+
+export interface IPrize extends Document {
+  name: string;
+  description?: string;
+  /** Inactivo: no se ofrece a líderes/oficiales (los sorteos pasados lo conservan). */
+  active: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export type RaffleActivity = 'shadow_war' | 'vigil_of_blades';
+export type RaffleRange = '30' | '60' | '90' | 'cycle';
+
+export interface IRaffleRule {
+  activity: RaffleActivity;
+  /** count = mínimo de asistencias; percent = mínimo % de las instancias del período. */
+  mode: 'count' | 'percent';
+  min: number;
+}
+
+/** Un premio del sorteo y su ganador (los premios se sortean en orden). */
+export interface IRaffleDraw {
+  prize: Types.ObjectId;
+  /** Copia del premio al momento del sorteo (el catálogo puede cambiar). */
+  prizeName: string;
+  prizeDescription?: string;
+  winner: { character: Types.ObjectId; name: string };
+  /** El dueño del personaje ganador ya vio el aviso (modal). */
+  winnerAcknowledged: boolean;
+}
+
+export interface IRaffle extends Document {
+  clan: Types.ObjectId;
+  criteria: {
+    range: RaffleRange;
+    cycle?: Types.ObjectId | null;
+    since: Date;
+    until: Date;
+    rules: IRaffleRule[];
+    /** Líder y oficiales cuentan como elegibles (por defecto quedan fuera). */
+    includeStaff: boolean;
+  };
+  participants: Array<{ character: Types.ObjectId; name: string }>;
+  /** En orden de sorteo; quien gana un premio sale del bombo para los siguientes. */
+  draws: IRaffleDraw[];
+  drawnBy: Types.ObjectId;
+  drawnByCharacter?: Types.ObjectId | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
